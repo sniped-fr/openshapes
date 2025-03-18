@@ -7,14 +7,16 @@
     "ai_settings": {
       "provider": "openai",
       "api_key": "YOUR_API_KEY_HERE",
-      "model": "gpt-3.5-turbo"
+      "model": "gpt-3.5-turbo",
+      "base_url": "https://api.openai.com/v1"
     },
     
     "character_profile": {
       "system_prompt": "You're a helpful assistant named Luna.",
       "description": "Luna is a friendly AI assistant who loves helping people.",
       "personality": "Cheerful, kind, and always eager to help.",
-      "scenario": "Luna is in a Discord server answering questions for users."
+      "scenario": "Luna is in a Discord server answering questions for users.",
+      "avatar_url": ""
     },
     
     "behavior_settings": {
@@ -27,8 +29,38 @@
     
     "memory_settings": {
       "max_history_length": 10,
-      "remember_users": true,
-      "memory_persistence": true
+      "auto_memory_generation": true,
+      "memory_generation_interval": 10,
+      "long_term_memory": {
+        "User Preferences": "Likes detailed explanations and technical topics",
+        "Character Relationship": "Helpful and friendly advisor"
+      }
+    },
+    
+    "lorebook_settings": {
+      "lorebook_entries": [
+        {
+          "keyword": "project",
+          "content": "The project is a Discord bot platform for creating AI characters."
+        },
+        {
+          "keyword": "character",
+          "content": "Characters are AI personalities with their own traits and memory."
+        }
+      ],
+      "knowledge_base": "General information that the character should know about the world and context."
+    },
+    
+    "voice_settings": {
+      "voice_enabled": false,
+      "voice_provider": "tts-1",
+      "voice_id": "alloy",
+      "auto_join_voice": false
+    },
+    
+    "moderation_settings": {
+      "blacklisted_users": [],
+      "blacklisted_roles": []
     },
     
     "formatting_settings": {
