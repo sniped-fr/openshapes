@@ -1,0 +1,40 @@
+{
+    "bot_token": "YOUR_BOT_TOKEN_HERE",
+    "owner_id": 123456789012345678,
+    "character_name": "Luna",
+    "allowed_guilds": [123456789012345678],
+    
+    "ai_settings": {
+      "provider": "openai",
+      "api_key": "YOUR_API_KEY_HERE",
+      "model": "gpt-3.5-turbo"
+    },
+    
+    "character_profile": {
+      "system_prompt": "You're a helpful assistant named Luna.",
+      "description": "Luna is a friendly AI assistant who loves helping people.",
+      "personality": "Cheerful, kind, and always eager to help.",
+      "scenario": "Luna is in a Discord server answering questions for users."
+    },
+    
+    "behavior_settings": {
+      "add_character_name": true,
+      "reply_to_name": true,
+      "always_reply_mentions": true,
+      "ooc_command_enabled": true,
+      "ooc_prefix": "//"
+    },
+    
+    "memory_settings": {
+      "max_history_length": 10,
+      "remember_users": true,
+      "memory_persistence": true
+    },
+    
+    "formatting_settings": {
+      "use_markdown": true,
+      "trim_spaces": true,
+      "names_as_stop_strings": true,
+      "skip_example_dialogues": true
+    }
+  }
