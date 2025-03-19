@@ -491,15 +491,71 @@ class SimpleCharacterBot(commands.Bot):
             "Configure API Settings:", view=view, ephemeral=True
         )
 
+    def _search_memory(self, message_content: str) -> List[str]:
+        """
+        Search for memories relevant to the current message content.
+        Uses more sophisticated matching to find relevant memories.
+        
+        Args:
+            message_content: The user's message content
+            
+        Returns:
+            List of relevant memory strings in format "Topic: Detail"
+        """
+        if not self.long_term_memory:
+            return []
+            
+        memory_matches = []
+        message_lower = message_content.lower().split()
+        
+        # Score each memory for relevance
+        memory_scores = {}
+        
+        for topic, detail in self.long_term_memory.items():
+            score = 0
+            topic_lower = topic.lower()
+            
+            # Direct topic match (highest priority)
+            if topic_lower in message_content.lower():
+                score += 10
+                
+            # Word-level matching
+            topic_words = topic_lower.split()
+            for word in topic_words:
+                if len(word) > 3 and word in message_lower:  # Only match significant words
+                    score += 3
+                    
+            # Look for words from the detail in the message
+            detail_words = set(detail.lower().split())
+            for word in detail_words:
+                if len(word) > 3 and word in message_lower:
+                    score += 1
+                    
+            # If we found any relevance, add to potential matches
+            if score > 0:
+                memory_scores[topic] = (score, f"{topic}: {detail}")
+        
+        # Sort by relevance score (highest first)
+        sorted_memories = sorted(memory_scores.items(), key=lambda x: x[1][0], reverse=True)
+        
+        # Get the memory strings for the top matches (limit to 3 most relevant)
+        memory_matches = [mem[1][1] for mem in sorted_memories[:3]]
+        
+        # Log what we found
+        if memory_matches:
+            logger.info(f"Found {len(memory_matches)} relevant memories: {[m.split(':')[0] for m in memory_matches]}")
+        
+        return memory_matches
+    
     async def _call_chat_api(
         self,
         user_message,
         user_name="User",
         conversation_history=None,
-        relevant_lore=None,
+        relevant_info=None,
         system_prompt=None,
     ):
-        """Call the AI API to generate a response with limited conversation history"""
+        """Call the AI API to generate a response with limited conversation history and relevant memories"""
         if not self.ai_client or not self.chat_model:
             return None
 
@@ -519,11 +575,11 @@ class SimpleCharacterBot(commands.Bot):
                 if self.system_prompt:
                     system_content += f"\n{self.system_prompt}"
 
-                # Add relevant lore if available
-                if relevant_lore and len(relevant_lore) > 0:
+                # Add relevant information (lore and memories) if available
+                if relevant_info and len(relevant_info) > 0:
                     system_content += "\nImportant information you know:\n"
-                    for lore in relevant_lore:
-                        system_content += f"- {lore}\n"
+                    for info in relevant_info:
+                        system_content += f"- {info}\n"
 
             # Prepare messages list
             messages = [{"role": "system", "content": system_content}]
@@ -553,7 +609,6 @@ class SimpleCharacterBot(commands.Bot):
         except Exception as e:
             logger.error(f"Error calling chat API: {e}")
             return f"I'm having trouble connecting to my thoughts right now. Please try again later. (Error: {str(e)[:50]}...)"
-
 
 
     def _extract_speech_text(self, text, ignore_asterisks=False, only_narrate_quotes=False):
@@ -961,13 +1016,23 @@ class SimpleCharacterBot(commands.Bot):
 
                 # Get relevant lorebook entries
                 relevant_lore = self._get_relevant_lorebook_entries(clean_content)
+                
+                # Get relevant memories using our new search function
+                relevant_memories = self._search_memory(clean_content)
+                
+                # Combine lore and memories into single relevant_info list
+                relevant_info = []
+                if relevant_lore:
+                    relevant_info.extend(relevant_lore)
+                if relevant_memories:
+                    relevant_info.extend(relevant_memories)
 
-                # Generate a response based on persona and history
+                # Generate a response based on persona, history and relevant information
                 response = await self._generate_response(
                     message.author.display_name,
                     clean_content,
                     channel_history,
-                    relevant_lore,
+                    relevant_info,
                 )
 
                 # Add response to history
@@ -1061,10 +1126,11 @@ class SimpleCharacterBot(commands.Bot):
                             "user_name": message.author.display_name,
                             "user_message": clean_content,
                             "channel_history": channel_history[:-1],  # Don't include the bot's response
-                            "relevant_lore": relevant_lore,
+                            "relevant_info": relevant_info,  # Store combined lore and memories
                             "original_message": message.id  # Store original message ID for reply
                         }
-
+    
+    
     async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
         """Handle reactions to messages with improved recycling emoji behavior"""
         # Ignore bot's own reaction adds
@@ -1142,12 +1208,12 @@ class SimpleCharacterBot(commands.Bot):
                     
                     # Show typing indicator
                     async with reaction.message.channel.typing():
-                        # Get a new response
+                        # Get a new response with the saved context
                         new_response = await self._generate_response(
                             context["user_name"],
                             context["user_message"],
                             context["channel_history"],
-                            context["relevant_lore"]
+                            context["relevant_info"]  # Use the saved relevant_info (lore + memories)
                         )
                         
                         # Format response with name if enabled
@@ -1480,15 +1546,32 @@ class SimpleCharacterBot(commands.Bot):
         command = parts[0].lower() if parts else ""
         args = parts[1] if len(parts) > 1 else ""
 
+        # This is just the memory-related part of the _handle_ooc_command method
+
         if command == "memory" or command == "wack":
             if args.lower() == "show":
                 memory_display = "**Long-term Memory:**\n"
                 if not self.long_term_memory:
                     memory_display += "No memories stored yet."
                 else:
-                    for topic, details in self.long_term_memory.items():
+                    # Sort memories alphabetically by topic for better readability
+                    sorted_memories = sorted(self.long_term_memory.items())
+                    for topic, details in sorted_memories:
                         memory_display += f"- **{topic}**: {details}\n"
                 await message.reply(memory_display)
+            elif args.lower() == "search" and len(parts) > 2:
+                # New command to search memories based on keywords
+                search_term = parts[2]
+                relevant_memories = self._search_memory(search_term)
+                
+                if relevant_memories:
+                    memory_display = f"**Memories matching '{search_term}':**\n"
+                    for memory in relevant_memories:
+                        topic, detail = memory.split(":", 1)
+                        memory_display += f"- **{topic}**:{detail}\n"
+                    await message.reply(memory_display)
+                else:
+                    await message.reply(f"No memories found matching '{search_term}'")
             elif args.lower().startswith("add "):
                 # Add memory manually
                 mem_parts = args[4:].split(":", 1)
@@ -1646,16 +1729,35 @@ class SimpleCharacterBot(commands.Bot):
     ) -> str:
         """
         Generate a response using the AI API if configured, otherwise fall back to simple responses.
+        First checks memories for relevant information before making an API call.
         """
-        # Try to use the API first if configured
+        # Check if there are any memories related to the message content
+        memory_matches = []
+        for topic, detail in self.long_term_memory.items():
+            # Check if any word in the topic is in the message content (case insensitive)
+            topic_words = topic.lower().split()
+            message_lower = message_content.lower()
+            
+            # Check for topic matches
+            if any(word in message_lower for word in topic_words):
+                memory_matches.append(f"{topic}: {detail}")
+        
         # Ensure we only use up to 8 messages of history
         if len(conversation_history) > 8:
             conversation_history = conversation_history[-8:]
-            
-        # Try to use the API first if configured
+        
+        # Prepare list of all relevant information
+        relevant_info = []
+        if relevant_lore:
+            relevant_info.extend(relevant_lore)
+        if memory_matches:
+            relevant_info.extend(memory_matches)
+            logger.info(f"Found {len(memory_matches)} relevant memories for response generation")
+        
+        # Try to use the API if configured
         if self.ai_client and self.chat_model:
             response = await self._call_chat_api(
-                message_content, user_name, conversation_history, relevant_lore
+                message_content, user_name, conversation_history, relevant_info
             )
             if response:
                 return response
@@ -1670,11 +1772,12 @@ class SimpleCharacterBot(commands.Bot):
             User: {user_name}
             Message: {message_content}
             """
-        # Add relevant lorebook entries
-        if relevant_lore and len(relevant_lore) > 0:
+            
+        # Add relevant information (combined lore and memories)
+        if relevant_info and len(relevant_info) > 0:
             prompt += "Relevant information:\n"
-            for lore in relevant_lore:
-                prompt += f"- {lore}\n"
+            for info in relevant_info:
+                prompt += f"- {info}\n"
 
         # Add conversation history context (limiting to available history)
         history_to_use = conversation_history[:-1]  # Exclude current message
@@ -1694,8 +1797,7 @@ class SimpleCharacterBot(commands.Bot):
 
         # Default response
         return f"I understand you're saying something about '{message_content[:20]}...'. As {self.character_name}, I would respond appropriately based on my personality and our conversation history."
-
-    # Add helper method for voice disconnection
+        # Add helper method for voice disconnection
 
     async def _disconnect_after_audio(self, voice_client):
         """Disconnect from voice channel after audio finishes playing"""
