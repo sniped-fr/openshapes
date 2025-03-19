@@ -1429,19 +1429,79 @@ class OpenShape(commands.Bot):
                 
         elif command == "memory" or command == "wack":
             if args.lower() == "show":
-                memory_display = self.format_memories_for_display(guild_id)
-                await message.reply(memory_display)
+                memory_display = self.memory_manager.format_memories_for_display(guild_id)
+            
+                # Split long memory display into chunks of 1900 characters (leaving some room for formatting)
+                if len(memory_display) > 1900:
+                    chunks = []
+                    current_chunk = "**Character Memories:**\n"
+                    
+                    # Split by memory entries (assuming they're separated by newlines)
+                    memory_entries = memory_display.split("\n")
+                    
+                    for entry in memory_entries:
+                        # Skip empty lines
+                        if not entry.strip():
+                            continue
+                            
+                        # If adding this entry would exceed the limit, start a new chunk
+                        if len(current_chunk) + len(entry) + 1 > 1900:
+                            chunks.append(current_chunk)
+                            current_chunk = f"**Character Memories (continued):**\n{entry}\n"
+                        else:
+                            current_chunk += f"{entry}\n"
+                    
+                    # Add the last chunk if it has content
+                    if current_chunk.strip() != "**Character Memories (continued):**":
+                        chunks.append(current_chunk)
+                    
+                    # Send each chunk as a separate message
+                    for i, chunk in enumerate(chunks):
+                        await message.reply(chunk)
+                else:
+                    # Send as a single message if it's short enough
+                    await message.reply(memory_display)
             elif args.lower().startswith("search ") and len(parts) > 2:
                 # New command to search memories based on keywords
                 search_term = parts[2]
                 relevant_memories = self.memory_manager.search_memory(search_term, guild_id)
                 
                 if relevant_memories:
+                    # Combine all memories into one display string
                     memory_display = f"**Memories matching '{search_term}':**\n"
                     for memory in relevant_memories:
-                        await message.reply(memory_display + memory)
-                else:
-                    await message.reply(f"No memories found matching '{search_term}'")
+                        memory_display += f"{memory}\n"
+                    
+                    # Split long memory display into chunks of 1900 characters
+                    if len(memory_display) > 1900:
+                        chunks = []
+                        current_chunk = memory_display[:memory_display.find('\n')+1]  # Include header in first chunk
+                        
+                        # Split by memory entries (assuming they're separated by newlines)
+                        memory_entries = memory_display[memory_display.find('\n')+1:].split("\n")
+                        
+                        for entry in memory_entries:
+                            # Skip empty lines
+                            if not entry.strip():
+                                continue
+                                
+                            # If adding this entry would exceed the limit, start a new chunk
+                            if len(current_chunk) + len(entry) + 1 > 1900:
+                                chunks.append(current_chunk)
+                                current_chunk = f"**Memories matching '{search_term}' (continued):**\n{entry}\n"
+                            else:
+                                current_chunk += f"{entry}\n"
+                        
+                        # Add the last chunk if it has content
+                        if current_chunk.strip() != f"**Memories matching '{search_term}' (continued):**":
+                            chunks.append(current_chunk)
+                        
+                        # Send each chunk as a separate message
+                        for chunk in chunks:
+                            await message.reply(chunk)
+                    else:
+                        # Send as a single message if it's short enough
+                        await message.reply(memory_display)
             elif args.lower().startswith("add "):
                 # Add memory manually
                 mem_parts = args[4:].split(":", 1)
