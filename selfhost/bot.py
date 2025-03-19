@@ -9,9 +9,13 @@ import datetime
 from typing import Dict, List
 from openai import AsyncOpenAI
 import asyncio
-from discord.ext import tasks
+
+# Import helper modules
 from helpers.regex_extension import *
 from helpers.views import *
+from helpers.openshape_helpers import setup_openshape_helpers
+from helpers.cleanup_helpers import setup_cleanup
+from helpers.config_manager import setup_config_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -93,9 +97,6 @@ class OpenShape(commands.Bot):
         os.makedirs(self.conversations_dir, exist_ok=True)
         os.makedirs(self.audio_dir, exist_ok=True)
 
-        # Initialize storage
-        self._load_storage()
-
         # Response behavior settings
         self.add_character_name = self.character_config.get("add_character_name", True)
         self.always_reply_mentions = self.character_config.get(
@@ -111,133 +112,18 @@ class OpenShape(commands.Bot):
         self.blacklisted_users = self.character_config.get("blacklisted_users", [])
         self.blacklisted_roles = self.character_config.get("blacklisted_roles", [])
         self.conversation_timeout = self.character_config.get("conversation_timeout", 30)  # Default 30 minutes
+
+        # Initialize helper modules
+        self.config_manager = setup_config_manager(self, config_path)
+        self.helpers = setup_openshape_helpers(self)
+        self.cleanup = setup_cleanup(self)
+        self.regex_manager = RegexManager(self)
         
-        # Start the cleanup task
-       
-
-    def _load_storage(self):
-        """Load memory and lorebook from files with updated memory structure"""
-        # Load memory
-        if os.path.exists(self.memory_path):
-            with open(self.memory_path, "r", encoding="utf-8") as f:
-                loaded_memory = json.load(f)
-                
-                # Check if we need to migrate old memory format
-                if loaded_memory and isinstance(next(iter(loaded_memory.values())), str):
-                    # Old format detected - migrate to new format
-                    migrated_memory = {}
-                    for topic, detail in loaded_memory.items():
-                        migrated_memory[topic] = {
-                            "detail": detail,
-                            "source": "Unknown",  # Default source for migrated memories
-                            "timestamp": datetime.datetime.now().isoformat()
-                        }
-                    self.long_term_memory = migrated_memory
-                else:
-                    # Already in new format or empty
-                    self.long_term_memory = loaded_memory
-        else:
-            self.long_term_memory = {}
-            self._save_memory()
-
-        # Load lorebook (unchanged)
-        if os.path.exists(self.lorebook_path):
-            with open(self.lorebook_path, "r", encoding="utf-8") as f:
-                self.lorebook_entries = json.load(f)
-        else:
-            self.lorebook_entries = []
-            self._save_lorebook()
-
-    def _save_memory(self):
-        """Save memory to file"""
-        with open(self.memory_path, "w", encoding="utf-8") as f:
-            json.dump(self.long_term_memory, f, indent=2)
-
-    def _save_lorebook(self):
-        """Save lorebook to file"""
-        with open(self.lorebook_path, "w", encoding="utf-8") as f:
-            json.dump(self.lorebook_entries, f, indent=2)
-
-    def _save_config(self):
-        """Save configuration to file"""
-        # Update config with current settings
-        self.character_config.update(
-            {
-                "character_name": self.character_name,
-                "system_prompt": self.system_prompt,
-                "character_description": self.character_description,
-                "personality_catchphrases": self.personality_catchphrases,
-                "personality_age": self.personality_age,
-                "personality_likes": self.personality_likes,
-                "personality_dislikes": self.personality_dislikes,
-                "personality_goals": self.personality_goals,
-                "personality_traits": self.personality_traits,
-                "personality_physical_traits": self.personality_physical_traits,
-                "personality_tone": self.personality_tone,
-                "personality_history": self.personality_history,
-                "personality_conversational_goals": self.personality_conversational_goals,
-                "personality_conversational_examples": self.personality_conversational_examples,
-                "character_scenario": self.character_scenario,
-                "add_character_name": self.add_character_name,
-                "reply_to_name": self.reply_to_name,
-                "always_reply_mentions": self.always_reply_mentions,
-                "activated_channels": list(self.activated_channels),
-                "blacklisted_users": self.blacklisted_users,
-                "blacklisted_roles": self.blacklisted_roles,
-            }
-        )
-
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(self.character_config, f, indent=2)
-
-    def _save_conversation(self, channel_id, conversation):
-        """Save a conversation to a JSON file"""
-        # Create a filename with channel ID and timestamp
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{channel_id}_{timestamp}.json"
-        filepath = os.path.join(self.conversations_dir, filename)
-
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(conversation, f, indent=2)
-
-    # Add a task loop to clean up old conversations
-    @tasks.loop(minutes=5)  # Check every 5 minutes
-    async def conversation_cleanup(self):
-        """Task to clean up old conversations that haven't been active recently"""
-        if not hasattr(self, "channel_conversations"):
-            return
-        
-        current_time = datetime.datetime.now()
-        channels_to_cleanup = []
-        
-        # Find channels with inactive conversations
-        for channel_id, conversation in self.channel_conversations.items():
-            if not conversation:
-                continue
-                
-            # Get timestamp from last message
-            try:
-                last_message = conversation[-1]
-                last_timestamp = last_message.get("timestamp")
-                
-                if last_timestamp:
-                    last_time = datetime.datetime.fromisoformat(last_timestamp)
-                    time_diff = current_time - last_time
-                    
-                    # If conversation is older than timeout, mark for cleanup
-                    if time_diff.total_seconds() > (self.conversation_timeout * 60):
-                        channels_to_cleanup.append(channel_id)
-                        logger.info(f"Cleaning up conversation in channel {channel_id} - inactive for {time_diff.total_seconds()/60:.1f} minutes")
-            except (ValueError, KeyError, IndexError) as e:
-                logger.error(f"Error processing conversation timestamps: {e}")
-        
-        # Clean up the inactive conversations
-        for channel_id in channels_to_cleanup:
-            del self.channel_conversations[channel_id]
+        # Initialize storage for conversations
+        self.channel_conversations = {}
 
     async def setup_hook(self):
         """Register slash commands when the bot is starting up"""
-        self.conversation_cleanup.start()
         # Basic commands
         self.tree.add_command(
             app_commands.Command(
@@ -384,8 +270,6 @@ class OpenShape(commands.Bot):
                 ),
                 guild=guild,
             )
-            
-        self.regex_manager = RegexManager(self)
 
     async def character_info_command(self, interaction: discord.Interaction):
         """Public command to show character information"""
@@ -429,7 +313,7 @@ class OpenShape(commands.Bot):
     async def activate_command(self, interaction: discord.Interaction):
         """Activate the bot in the current channel"""
         self.activated_channels.add(interaction.channel_id)
-        self._save_config()
+        self.config_manager.save_config()
         await interaction.response.send_message(
             f"{self.character_name} will now respond to all messages in this channel."
         )
@@ -438,7 +322,7 @@ class OpenShape(commands.Bot):
         """Deactivate the bot in the current channel"""
         if interaction.channel_id in self.activated_channels:
             self.activated_channels.remove(interaction.channel_id)
-            self._save_config()
+            self.config_manager.save_config()
         await interaction.response.send_message(
             f"{self.character_name} will now only respond when mentioned or called by name."
         )
@@ -496,7 +380,7 @@ class OpenShape(commands.Bot):
                 elif trait == "style":
                     self.personality_conversational_examples = modal.text_input.value
                     
-                self._save_config()
+                self.config_manager.save_config()
                 await modal_interaction.response.send_message(
                     f"Character {trait} updated!", ephemeral=True
                 )
@@ -528,7 +412,7 @@ class OpenShape(commands.Bot):
 
         async def on_submit(modal_interaction):
             self.personality_history = modal.text_input.value
-            self._save_config()
+            self.config_manager.save_config()
             await modal_interaction.response.send_message(
                 "Character history updated!", ephemeral=True
             )
@@ -577,10 +461,13 @@ class OpenShape(commands.Bot):
                 elif pref == "goals":
                     self.personality_goals = modal.text_input.value
                     
-                self._save_config()
+                self.config_manager.save_config()
                 await modal_interaction.response.send_message(
                     f"Character {pref} updated!", ephemeral=True
                 )
+
+            modal.on_submit = on_submit
+            await select_interaction.response.send_modal(modal)
 
         select.callback = select_callback
         view = discord.ui.View()
@@ -663,7 +550,7 @@ class OpenShape(commands.Bot):
                     continue
                 
                 # Extract memories from this conversation batch
-                created = await self._extract_memories_from_text(conversation_content)
+                created = await self.memory_manager.extract_memories_from_text(conversation_content)
                 memories_created += created
                 
                 # Throttle requests to avoid rate limits
@@ -680,120 +567,18 @@ class OpenShape(commands.Bot):
         except Exception as e:
             logger.error(f"Error during sleep command: {e}")
             await interaction.channel.send(f"Something went wrong while processing recent messages: {str(e)[:100]}...")
-            
-    async def _extract_memories_from_text(self, text_content):
-        """Extract and store important information from any text as memories"""
-        if not self.ai_client or not self.chat_model:
-            return 0
-        
-        try:
-            # Create a system prompt for memory extraction
-            system_prompt = """You are an AI designed to extract meaningful information from conversations or text that would be valuable to remember for future interactions.
-
-            Instructions:
-            1. Analyze the provided text.
-            2. Identify significant information such as:
-               - Personal preferences (likes, dislikes)
-               - Background information (job, location, family)
-               - Important events (past or planned)
-               - Goals or needs expressed
-               - Problems being faced
-               - Relationships between people
-
-            3. For each piece of significant information, output a JSON object with these key-value pairs:
-               - "topic": A short, descriptive topic name (e.g., "User's Job", "Birthday Plans")
-               - "detail": A concise factual statement summarizing what to remember
-               - "importance": A number from 1-10 indicating how important this memory is (10 being most important)
-
-            4. Format your output as a JSON array of these objects.
-            5. If nothing significant was found, return an empty array: []
-
-            Only extract specific, factual information, and focus on details that would be useful to remember in future conversations.
-            Your output should be ONLY a valid JSON array with no additional text.
-            """
-            
-            # Call API to analyze conversation
-            memory_analysis = await self._call_chat_api(
-                text_content,
-                system_prompt=system_prompt
-            )
-            
-            # Process the response to extract memory information
-            try:
-                # Look for JSON in the response (in case there's any non-JSON text)
-                import re
-                json_match = re.search(r'\[.*\]', memory_analysis, re.DOTALL)
-                
-                if json_match:
-                    memory_json = json_match.group(0)
-                    memory_data = json.loads(memory_json)
-                    
-                    # Track how many memories we created
-                    memories_created = 0
-                    
-                    # Update memory with extracted information
-                    for memory in memory_data:
-                        topic = memory.get("topic")
-                        detail = memory.get("detail")
-                        importance = memory.get("importance", 5)
-                        
-                        if topic and detail and importance >= 3:  # Only store memories with importance >= 3
-                            # Store memory with system attribution
-                            self.long_term_memory[topic] = {
-                                "detail": detail,
-                                "source": "Sleep Analysis",
-                                "timestamp": datetime.datetime.now().isoformat(),
-                                "importance": importance
-                            }
-                            logger.info(f"Added memory from sleep: {topic}: {detail} (importance: {importance})")
-                            memories_created += 1
-                    
-                    # Save memory if anything was added
-                    if memories_created > 0:
-                        self._save_memory()
-                    
-                    return memories_created
-                else:
-                    logger.info("No memory-worthy information found in sleep analysis")
-                    return 0
-                    
-            except (json.JSONDecodeError, AttributeError) as e:
-                logger.warning(f"Failed to parse memory response in sleep: {memory_analysis[:100]}... Error: {str(e)}")
-                return 0
-                
-        except Exception as e:
-            logger.error(f"Error in sleep memory extraction: {e}")
-            return 0
-
           
     async def memory_command(self, interaction: discord.Interaction):
         """View or manage memories with source attribution"""
         # Only allow the owner to manage memories
         if interaction.user.id != self.owner_id:
-            memory_display = "**Long-term Memory:**\n"
-            if not self.long_term_memory:
-                memory_display += "No memories stored yet."
-            else:
-                for topic, memory_data in self.long_term_memory.items():
-                    detail = memory_data["detail"]
-                    source = memory_data["source"]
-                    memory_display += f"- **{topic}**: {detail} (from {source})\n"
-
+            memory_display = self.memory_manager.format_memories_for_display()
             await interaction.response.send_message(memory_display)
             return
 
         # Create a view for memory management
         view = MemoryManagementView(self)
-
-        memory_display = "**Long-term Memory:**\n"
-        if not self.long_term_memory:
-            memory_display += "No memories stored yet."
-        else:
-            for topic, memory_data in self.long_term_memory.items():
-                detail = memory_data["detail"]
-                source = memory_data["source"]
-                memory_display += f"- **{topic}**: {detail} (from {source})\n"
-
+        memory_display = self.memory_manager.format_memories_for_display()
         await interaction.response.send_message(memory_display, view=view)
 
     async def api_settings_command(self, interaction: discord.Interaction):
@@ -838,8 +623,7 @@ class OpenShape(commands.Bot):
 
             elif action == "toggle_tts":
                 self.use_tts = not self.use_tts
-                self.character_config["use_tts"] = self.use_tts
-                self._save_config()
+                self.config_manager.update_field("use_tts", self.use_tts)
                 await select_interaction.response.send_message(
                     f"TTS has been {'enabled' if self.use_tts else 'disabled'}",
                     ephemeral=True,
@@ -862,7 +646,7 @@ class OpenShape(commands.Bot):
 
                 try:
                     # Test chat completion
-                    completion = await self._call_chat_api(
+                    completion = await self.api_manager.call_chat_api(
                         "Hello, this is a test message."
                     )
 
@@ -905,8 +689,7 @@ class OpenShape(commands.Bot):
                         self.api_settings["tts_voice"] = value
 
                     # Update config and reinitialize client
-                    self.character_config["api_settings"] = self.api_settings
-                    self._save_config()
+                    self.config_manager.update_field("api_settings", self.api_settings)
 
                     # Reinitialize OpenAI client if base URL and API key are set
                     if self.api_key and self.base_url:
@@ -943,224 +726,6 @@ class OpenShape(commands.Bot):
             "Configure API Settings:", view=view, ephemeral=True
         )
 
-    def _search_memory(self, message_content: str) -> List[str]:
-        """
-        Search for memories relevant to the current message content.
-        Uses more sophisticated matching to find relevant memories.
-        Now includes source attribution in the returned memory strings.
-        
-        Args:
-            message_content: The user's message content
-            
-        Returns:
-            List of relevant memory strings in format "Topic: Detail (from Source)"
-        """
-        if not self.long_term_memory:
-            return []
-            
-        memory_matches = []
-        message_lower = message_content.lower().split()
-        
-        # Score each memory for relevance
-        memory_scores = {}
-        
-        for topic, memory_data in self.long_term_memory.items():
-            score = 0
-            topic_lower = topic.lower()
-            detail = memory_data["detail"]
-            source = memory_data["source"]
-            
-            # Direct topic match (highest priority)
-            if topic_lower in message_content.lower():
-                score += 10
-                
-            # Word-level matching
-            topic_words = topic_lower.split()
-            for word in topic_words:
-                if len(word) > 3 and word in message_lower:  # Only match significant words
-                    score += 3
-                    
-            # Look for words from the detail in the message
-            detail_words = set(detail.lower().split())
-            for word in detail_words:
-                if len(word) > 3 and word in message_lower:
-                    score += 1
-                    
-            # If we found any relevance, add to potential matches
-            if score > 0:
-                formatted_memory = f"{topic}: {detail} (from {source})"
-                memory_scores[topic] = (score, formatted_memory)
-        
-        # Sort by relevance score (highest first)
-        sorted_memories = sorted(memory_scores.items(), key=lambda x: x[1][0], reverse=True)
-        
-        # Get the memory strings for the top matches (limit to 3 most relevant)
-        memory_matches = [mem[1][1] for mem in sorted_memories[:3]]
-        
-        # Log what we found
-        if memory_matches:
-            logger.info(f"Found {len(memory_matches)} relevant memories: {[m.split(':')[0] for m in memory_matches]}")
-        
-        return memory_matches
-    
-    
-    async def _call_chat_api(
-        self,
-        user_message,
-        user_name="User",
-        conversation_history=None,
-        relevant_info=None,
-        system_prompt=None,
-    ):
-        """Call the AI API to generate a response with limited conversation history and relevant memories"""
-        if not self.ai_client or not self.chat_model:
-            return None
-
-        try:
-            # Use provided system prompt or build default one
-            if system_prompt:
-                system_content = system_prompt
-            else:
-                # Build system prompt with character info
-                system_content = f"""You are {self.character_name}.
-                    Description: {self.character_description}
-                    Scenario: {self.character_scenario}
-                    """
-                if self.personality_age:
-                    system_content += f"Age: {self.personality_age}\n"     
-                if self.personality_traits:
-                    system_content += f"Character Traits: {self.personality_traits}\n"
-                if self.personality_physical_traits:
-                    system_content += f"Physical Traits: {self.personality_physical_traits}\n"
-                if self.personality_tone:
-                    system_content += f"Speaking Tone: {self.personality_tone}\n"
-                if self.personality_likes:
-                    system_content += f"Likes: {self.personality_likes}\n"
-                if self.personality_dislikes:
-                    system_content += f"Dislikes: {self.personality_dislikes}\n"
-                if self.personality_goals:
-                    system_content += f"Goals: {self.personality_goals}\n"
-                if self.personality_history:
-                    system_content += f"Background: {self.personality_history}\n"
-                if self.personality_catchphrases:
-                    system_content += f"Signature Phrases: {self.personality_catchphrases}\n"
-                    
-                # Add conversational examples with substitution
-                if self.personality_conversational_examples:
-                    examples = self.personality_conversational_examples.replace("{user}", user_name)
-                    system_content += f"\nExample Interactions:\n{examples}\n"
-                    
-                # Add conversational goals with substitution
-                if self.personality_conversational_goals:
-                    goals = self.personality_conversational_goals.replace("{user}", user_name)
-                    system_content += f"\nConversational Goals: {goals}\n"
-
-            # Add custom system prompt if available
-            if self.system_prompt:
-                system_content = f"{self.system_prompt}\n\n{system_content}"
-
-            # Add relevant information (lore and memories) if available
-            if relevant_info and len(relevant_info) > 0:
-                system_content += "\nImportant information you know:\n"
-                for info in relevant_info:
-                    system_content += f"- {info}\n"
-
-            # Prepare messages list
-            messages = [{"role": "system", "content": system_content}]
-
-            # Add conversation history (limited to available history, max 8 messages)
-            if conversation_history:
-                history_to_use = conversation_history[-8:] if len(conversation_history) > 8 else conversation_history
-                for entry in history_to_use:
-                    role = "assistant" if entry["role"] == "assistant" else "user"
-                    messages.append({"role": role, "content": entry["content"]})
-
-            # If the latest message isn't in history, add it
-            if not conversation_history or user_message != conversation_history[-1].get("content", ""):
-                messages.append({"role": "user", "content": user_message})
-
-            # Call API
-            completion = await self.ai_client.chat.completions.create(
-                model=self.chat_model,
-                messages=messages,
-                stream=False,
-            )
-
-            # Extract response text
-            response = completion.choices[0].message.content
-            return response
-
-        except Exception as e:
-            logger.error(f"Error calling chat API: {e}")
-            return f"I'm having trouble connecting to my thoughts right now. Please try again later. (Error: {str(e)[:50]}...)"
-
-
-    def _extract_speech_text(self, text, ignore_asterisks=False, only_narrate_quotes=False):
-        result = text
-        if ignore_asterisks:
-            result = re.sub(r'\*[^*]*\*', '', result)
-        
-        if only_narrate_quotes:
-            # Extract only text within quotes
-            quotes = re.findall(r'"([^"]*)"', result)
-            if quotes:
-                # Join all quoted text with appropriate pauses
-                result = '... '.join(quotes)
-            else:
-                # If no quotes found, return empty string or original based on preference
-                result = ''
-        
-        # Clean up any extra whitespace
-        result = ' '.join(result.split())
-    
-        return result
-
-    # Add a method to generate TTS audio
-    async def _generate_tts(self, text):
-        """Generate TTS audio from text"""
-        if (
-            not self.ai_client
-            or not self.tts_model
-            or not self.tts_voice
-            or not self.use_tts
-        ):
-            return None
-
-        try:
-            speech_text = self._extract_speech_text(
-                text, 
-                ignore_asterisks=True,
-                only_narrate_quotes=True
-            )
-            
-            if not speech_text:
-                return None
-            
-            # Generate a filename based on text hash
-            import hashlib
-
-            text_hash = hashlib.md5(text.encode()).hexdigest()[:10]
-            filename = f"{self.character_name}_{text_hash}.mp3"
-            filepath = os.path.join(self.audio_dir, filename)
-
-            # Check if file already exists
-            if os.path.exists(filepath):
-                return filepath
-
-            # Call TTS API
-            response = await self.ai_client.audio.speech.create(
-                model=self.tts_model, voice=self.tts_voice, input=speech_text
-            )
-
-            # Save audio file
-            response.stream_to_file(filepath)
-            return filepath
-
-        except Exception as e:
-            logger.error(f"Error generating TTS: {e}")
-            return None
-
-    # Modify the _generate_res
     async def lorebook_command(self, interaction: discord.Interaction):
         """Manage lorebook entries"""
         # Check if user is owner for management
@@ -1186,16 +751,7 @@ class OpenShape(commands.Bot):
 
         # Create a view for lorebook management
         view = LorebookManagementView(self)
-
-        lore_display = "**Lorebook Entries:**\n"
-        if not self.lorebook_entries:
-            lore_display += "No entries yet."
-        else:
-            for i, entry in enumerate(self.lorebook_entries):
-                lore_display += (
-                    f"{i+1}. **{entry['keyword']}**: {entry['content'][:50]}...\n"
-                )
-
+        lore_display = self.lorebook_manager.format_entries_for_display()
         await interaction.response.send_message(lore_display, view=view)
 
     async def settings_command(self, interaction: discord.Interaction):
@@ -1235,7 +791,7 @@ class OpenShape(commands.Bot):
 
         async def on_submit(modal_interaction):
             self.system_prompt = modal.text_input.value
-            self._save_config()
+            self.config_manager.save_config()
             await modal_interaction.response.send_message(
                 "System prompt updated!", ephemeral=True
             )
@@ -1258,7 +814,7 @@ class OpenShape(commands.Bot):
 
         async def on_submit(modal_interaction):
             self.character_description = modal.text_input.value
-            self._save_config()
+            self.config_manager.save_config()
             await modal_interaction.response.send_message(
                 "Character description updated!", ephemeral=True
             )
@@ -1282,7 +838,7 @@ class OpenShape(commands.Bot):
 
         async def on_submit(modal_interaction):
             self.character_scenario = modal.text_input.value
-            self._save_config()
+            self.config_manager.save_config()
             await modal_interaction.response.send_message(
                 "Character scenario updated!", ephemeral=True
             )
@@ -1336,7 +892,7 @@ class OpenShape(commands.Bot):
                         user_id = int(modal.user_id_input.value)
                         if user_id not in self.blacklisted_users:
                             self.blacklisted_users.append(user_id)
-                            self._save_config()
+                            self.config_manager.save_config()
                             await modal_interaction.response.send_message(
                                 f"User {user_id} added to blacklist.", ephemeral=True
                             )
@@ -1368,7 +924,7 @@ class OpenShape(commands.Bot):
                         user_id = int(modal.user_id_input.value)
                         if user_id in self.blacklisted_users:
                             self.blacklisted_users.remove(user_id)
-                            self._save_config()
+                            self.config_manager.save_config()
                             await modal_interaction.response.send_message(
                                 f"User {user_id} removed from blacklist.",
                                 ephemeral=True,
@@ -1403,9 +959,9 @@ class OpenShape(commands.Bot):
             return
 
         # Save everything
-        self._save_config()
-        self._save_memory()
-        self._save_lorebook()
+        self.config_manager.save_config()
+        self.memory_manager._save_memory()
+        self.lorebook_manager._save_lorebook()
 
         await interaction.response.send_message(
             "All data and settings saved!", ephemeral=True
@@ -1497,7 +1053,7 @@ class OpenShape(commands.Bot):
                 clean_content = re.sub(r"<@!?(\d+)>", "", message.content).strip()
 
                 # Get conversation history for this channel (limited to 8 messages)
-                channel_history = self._get_channel_conversation(message.channel.id)
+                channel_history = self.message_processor.get_channel_conversation(message.channel.id)
                 
                 # Add the new message to history
                 channel_history.append(
@@ -1514,10 +1070,10 @@ class OpenShape(commands.Bot):
                     channel_history = channel_history[-8:]
 
                 # Get relevant lorebook entries
-                relevant_lore = self._get_relevant_lorebook_entries(clean_content)
+                relevant_lore = self.lorebook_manager.get_relevant_entries(clean_content)
                 
                 # Get relevant memories using our new search function
-                relevant_memories = self._search_memory(clean_content)
+                relevant_memories = self.memory_manager.search_memory(clean_content)
                 
                 # Combine lore and memories into single relevant_info list
                 relevant_info = []
@@ -1527,7 +1083,7 @@ class OpenShape(commands.Bot):
                     relevant_info.extend(relevant_memories)
 
                 # Generate a response based on persona, history and relevant information
-                response = await self._generate_response(
+                response = await self.api_manager.generate_response(
                     message.author.display_name,
                     clean_content,
                     channel_history,
@@ -1557,13 +1113,13 @@ class OpenShape(commands.Bot):
                     channel_history = channel_history[-8:]
 
                 # Update memory if there's something important to remember
-                await self._update_memory_from_conversation(
+                await self.memory_manager.update_memory_from_conversation(
                     message.author.display_name, clean_content, response
                 )
 
                 # Save conversation periodically
                 # Note: Changed to save every time since we're limiting to 8 messages anyway
-                self._save_conversation(message.channel.id, channel_history)
+                self.message_processor.save_conversation(message.channel.id, channel_history)
 
                 # Format response with name if enabled
                 formatted_response = (
@@ -1576,7 +1132,7 @@ class OpenShape(commands.Bot):
                 if self.use_tts and message.guild and message.author.voice and message.author.voice.channel:
                     try:
                         # Generate TTS directly without saving to a permanent file
-                        temp_audio_file = await self._generate_temp_tts(response)
+                        temp_audio_file = await self.tts_handler.generate_temp_tts(response)
                         if temp_audio_file:
                             voice_channel = message.author.voice.channel
 
@@ -1599,7 +1155,7 @@ class OpenShape(commands.Bot):
                                 
                                 # Disconnect from voice channel
                                 asyncio.run_coroutine_threadsafe(
-                                    self._disconnect_after_audio(voice_client),
+                                    self.tts_handler.disconnect_after_audio(voice_client),
                                     self.loop,
                                 )
 
@@ -1611,7 +1167,7 @@ class OpenShape(commands.Bot):
                         logger.error(f"Error playing TTS audio: {e}")
                 else:
                     # Send the response in text form
-                    sent_message, message_group = await self._send_long_message(
+                    sent_message, message_group = await self.message_processor.send_long_message(
                         message.channel,
                         formatted_response,
                         reference=message,
@@ -1623,19 +1179,18 @@ class OpenShape(commands.Bot):
                     await sent_message.add_reaction("♻️")
 
                     # Store context for regeneration
-                    if not hasattr(self, "message_contexts"):
-                        self.message_contexts = {}
-
+                    context = {
+                        "user_name": message.author.display_name,
+                        "user_message": clean_content,
+                        "channel_history": channel_history[:-1],  # Don't include the bot's response
+                        "relevant_info": relevant_info,  # Store combined lore and memories
+                        "original_message": message.id  # Store original message ID for reply
+                    }
+                    
                     # Save the context needed for regeneration - save it for all message parts
                     primary_id = message_group["primary_id"]
                     if primary_id:
-                        self.message_contexts[primary_id] = {
-                            "user_name": message.author.display_name,
-                            "user_message": clean_content,
-                            "channel_history": channel_history[:-1],  # Don't include the bot's response
-                            "relevant_info": relevant_info,  # Store combined lore and memories
-                            "original_message": message.id  # Store original message ID for reply
-                        }
+                        self.message_processor.save_message_context(primary_id, context)
     
     
     async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
@@ -1649,8 +1204,8 @@ class OpenShape(commands.Bot):
         message_group = None
         
         # Check if this message is part of a multipart message group
-        if hasattr(self, "multipart_messages") and message_id in self.multipart_messages:
-            message_group = self.multipart_messages[message_id]
+        if self.message_processor.is_multipart_message(message_id):
+            message_group = self.message_processor.get_message_group(message_id)
         
         # If the reaction is the trash emoji on the bot's message
         if (
@@ -1676,11 +1231,6 @@ class OpenShape(commands.Bot):
                     except (discord.NotFound, discord.HTTPException):
                         # Message may already be deleted or not found
                         continue
-                        
-                # Clean up the multipart_messages entries
-                for msg_id in message_group["message_ids"]:
-                    if msg_id in self.multipart_messages:
-                        del self.multipart_messages[msg_id]
             else:
                 # Single message, just delete it
                 await reaction.message.delete()
@@ -1710,13 +1260,13 @@ class OpenShape(commands.Bot):
                     context_message_id = message_group["primary_id"]
                     
                 # Check if we have the context stored for regeneration
-                if hasattr(self, "message_contexts") and context_message_id in self.message_contexts:
-                    context = self.message_contexts[context_message_id]
-                    
+                context = self.message_processor.get_message_context(context_message_id)
+                
+                if context:
                     # Show typing indicator
                     async with reaction.message.channel.typing():
                         # Get a new response with the saved context
-                        new_response = await self._generate_response(
+                        new_response = await self.api_manager.generate_response(
                             context["user_name"],
                             context["user_message"],
                             context["channel_history"],
@@ -1745,7 +1295,7 @@ class OpenShape(commands.Bot):
                                 original_message = await reaction.message.channel.fetch_message(context["original_message"])
                                 
                                 # Send the new response as a new multipart message
-                                primary_message, new_message_group = await self._send_long_message(
+                                primary_message, new_message_group = await self.message_processor.send_long_message(
                                     reaction.message.channel, 
                                     formatted_response,
                                     reference=original_message
@@ -1756,15 +1306,11 @@ class OpenShape(commands.Bot):
                                 await primary_message.add_reaction("🔄")  # Mark as already regenerated
                                 
                                 # Update the context for the new primary message
-                                self.message_contexts[primary_message.id] = context
+                                self.message_processor.save_message_context(primary_message.id, context)
                                 
-                                # Clean up old context entries
-                                for old_id in message_group["message_ids"]:
-                                    if old_id in self.message_contexts:
-                                        del self.message_contexts[old_id]
                             except (discord.NotFound, discord.HTTPException):
                                 # If original message is gone, just send as new message
-                                primary_message, new_message_group = await self._send_long_message(
+                                primary_message, new_message_group = await self.message_processor.send_long_message(
                                     reaction.message.channel, 
                                     formatted_response
                                 )
@@ -1789,7 +1335,7 @@ class OpenShape(commands.Bot):
                                     original_message = await reaction.message.channel.fetch_message(context["original_message"])
                                     
                                     # Send the new response, potentially splitting if too long
-                                    primary_message, new_message_group = await self._send_long_message(
+                                    primary_message, new_message_group = await self.message_processor.send_long_message(
                                         reaction.message.channel, 
                                         formatted_response,
                                         reference=original_message
@@ -1800,21 +1346,18 @@ class OpenShape(commands.Bot):
                                     await primary_message.add_reaction("🔄")  # Mark as already regenerated
                                     
                                     # Update the context for the new message
-                                    self.message_contexts[primary_message.id] = context
+                                    self.message_processor.save_message_context(primary_message.id, context)
                                     
-                                    # Clean up old context
-                                    if message_id in self.message_contexts:
-                                        del self.message_contexts[message_id]
                                 except (discord.NotFound, discord.HTTPException):
                                     # Couldn't find original message, just send as a new message
-                                    primary_message, new_message_group = await self._send_long_message(
+                                    primary_message, new_message_group = await self.message_processor.send_long_message(
                                         reaction.message.channel, 
                                         formatted_response
                                     )
                                     await primary_message.add_reaction("🗑️")
                         
                         # Update conversation history with the new response
-                        channel_history = self._get_channel_conversation(reaction.message.channel.id)
+                        channel_history = self.message_processor.get_channel_conversation(reaction.message.channel.id)
                         
                         # Replace the last bot response or add this one
                         if channel_history and channel_history[-1]["role"] == "assistant":
@@ -1833,226 +1376,13 @@ class OpenShape(commands.Bot):
                             })
                         
                         # Save the updated conversation
-                        self._save_conversation(reaction.message.channel.id, channel_history)
+                        self.message_processor.save_conversation(reaction.message.channel.id, channel_history)
                         
                         # Check if we need to update memory from the regenerated response
-                        await self._update_memory_from_conversation(
+                        await self.memory_manager.update_memory_from_conversation(
                             context["user_name"], context["user_message"], new_response
                         )
-    async def _generate_temp_tts(self, text):
-        """Generate a temporary TTS audio file from text"""
-        if (
-            not self.ai_client
-            or not self.tts_model
-            or not self.tts_voice
-            or not self.use_tts
-        ):
-            return None
-
-        try:
-            # Create a temporary directory if it doesn't exist
-            temp_dir = os.path.join(self.data_dir, "temp_audio")
-            os.makedirs(temp_dir, exist_ok=True)
-
-            # Generate a filename based on timestamp for uniqueness
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            filename = f"{self.character_name}_{timestamp}.mp3"
-            filepath = os.path.join(temp_dir, filename)
-
-            # Call TTS API
-            response = await self.ai_client.audio.speech.create(
-                model=self.tts_model, voice=self.tts_voice, input=text
-            )
-
-            # Save audio to temporary file
-            response.stream_to_file(filepath)
-            return filepath
-
-        except Exception as e:
-            logger.error(f"Error generating TTS: {e}")
-            return None
     
-    async def _send_long_message(self, channel, content, reference=None, reply=True):
-        """
-        Splits long messages into multiple chunks and sends them.
-        Returns the sent message info including all message IDs for tracking.
-        
-        Args:
-            channel: The channel to send the message to
-            content: The message content
-            reference: The message to reply to (if any)
-            reply: Whether to use reply mention (defaults to True)
-        """
-        # Discord message limit is 2000 characters
-        MAX_LENGTH = 2000
-        
-        # Object to track all our messages
-        message_group = {
-            "is_multipart": False,
-            "message_ids": [],
-            "primary_id": None,  # First message ID
-            "content": content    # Store original content for regeneration
-        }
-        
-        # If message is within limits, just send it normally
-        if len(content) <= MAX_LENGTH:
-            if reference:
-                sent_message = await reference.reply(content, mention_author=reply)
-            else:
-                sent_message = await channel.send(content)
-                
-            message_group["message_ids"].append(sent_message.id)
-            message_group["primary_id"] = sent_message.id
-            return sent_message, message_group
-        
-        # Message needs to be split
-        message_group["is_multipart"] = True
-        
-        # Split message into chunks
-        chunks = []
-        current_chunk = ""
-        
-        # Try to split intelligently at paragraph or sentence boundaries
-        paragraphs = content.split('\n\n')
-        
-        for paragraph in paragraphs:
-            # If paragraph itself exceeds limit, split by sentences
-            if len(paragraph) > MAX_LENGTH:
-                sentences = paragraph.replace('. ', '.\n').split('\n')
-                for sentence in sentences:
-                    # If adding this sentence would exceed limit, start new chunk
-                    if len(current_chunk) + len(sentence) + 2 > MAX_LENGTH:
-                        chunks.append(current_chunk)
-                        current_chunk = sentence + '\n\n'
-                    else:
-                        current_chunk += sentence + '\n\n'
-            else:
-                # Check if adding this paragraph would exceed limit
-                if len(current_chunk) + len(paragraph) + 2 > MAX_LENGTH:
-                    chunks.append(current_chunk)
-                    current_chunk = paragraph + '\n\n'
-                else:
-                    current_chunk += paragraph + '\n\n'
-        
-        # Add the final chunk if not empty
-        if current_chunk:
-            chunks.append(current_chunk)
-        
-        # Send all chunks
-        primary_message = None
-        all_messages = []
-        
-        # Mark chunks with continuation indicator
-        chunks = [f"{chunk}\n{'(continued...)' if i < len(chunks) - 1 else ''}" for i, chunk in enumerate(chunks)]
-        
-        for i, chunk in enumerate(chunks):
-            # First chunk is a reply to the original message
-            if i == 0 and reference:
-                sent_message = await reference.reply(chunk, mention_author=reply)
-                primary_message = sent_message
-            else:
-                # Subsequent chunks are regular messages
-                sent_message = await channel.send(chunk)
-            
-            all_messages.append(sent_message)
-            message_group["message_ids"].append(sent_message.id)
-        
-        if primary_message is None and all_messages:
-            primary_message = all_messages[0]
-        
-        message_group["primary_id"] = primary_message.id if primary_message else None
-        
-        # Store all sent messages in a tracking dictionary
-        if not hasattr(self, "multipart_messages"):
-            self.multipart_messages = {}
-        
-        # Associate all sent message IDs with this message group
-        for msg_id in message_group["message_ids"]:
-            self.multipart_messages[msg_id] = message_group
-        
-        return primary_message, message_group
-
-    
-    
-    async def _update_memory_from_conversation(self, user_name, user_message, bot_response):
-        """Extract and store important information from conversations as memories with user attribution"""
-        if not self.ai_client or not self.chat_model:
-            return
-            
-        try:
-            # Create an improved system prompt that gives clearer instructions for memory extraction
-            system_prompt = """You are an AI designed to extract meaningful information from conversations that would be valuable to remember for future interactions.
-
-        Instructions:
-        1. Analyze the conversation between the user and the AI.
-        2. Identify any significant information about the user such as:
-        - Personal preferences (likes, dislikes)
-        - Background information (job, location, family)
-        - Important events (past or planned)
-        - Goals or needs they've expressed
-        - Problems they're facing
-
-        3. If you find something worth remembering, output a JSON object with a single key-value pair:
-        - Key: A short, descriptive topic name (e.g., "User's Job", "Birthday Plans", "Preferred Music")
-        - Value: A concise factual statement summarizing what to remember
-
-        4. If nothing significant was shared, return an empty JSON object: {}
-
-        Examples:
-        - User saying "I've been learning to play guitar for 3 months now" → {"Music Interest": "User has been learning guitar for 3 months"}
-        - User saying "I have an interview tomorrow at 9am" → {"Job Interview": "User has an interview scheduled tomorrow at 9am"}
-
-        Only extract specific, factual information (not vague impressions), and focus on details about the user, not general topics.
-        Unless it is when the user explicitly requests something to be remembered. You should remember such things, regardless of how pointless.
-        Your output should be ONLY a valid JSON object with no additional text.
-        """
-            
-            # Construct the conversation content to analyze
-            conversation_content = f"User {user_name}: {user_message}\nAI: {bot_response}"
-            
-            # Call API to analyze conversation
-            memory_analysis = await self._call_chat_api(
-                conversation_content,
-                system_prompt=system_prompt
-            )
-            print(memory_analysis)
-            
-            # Process the response to extract memory information
-            try:
-                # Look for JSON in the response (in case there's any non-JSON text)
-                import re
-                json_match = re.search(r'\{.*\}', memory_analysis, re.DOTALL)
-                
-                if json_match:
-                    memory_json = json_match.group(0)
-                    memory_data = json.loads(memory_json)
-                    
-                    # Update memory with extracted information and user attribution
-                    for topic, detail in memory_data.items():
-                        if topic and detail:  # Make sure they're not empty
-                            # Keep only meaningful memories (more than 3 chars)
-                            if len(detail) > 3:
-                                # Store memory with user attribution
-                                self.long_term_memory[topic] = {
-                                    "detail": detail,
-                                    "source": user_name,  # Record who provided this information
-                                    "timestamp": datetime.datetime.now().isoformat()
-                                }
-                                logger.info(f"Added memory from {user_name}: {topic}: {detail}")
-                    
-                    # Save memory if anything was added
-                    if memory_data:
-                        self._save_memory()
-                else:
-                    logger.info("No memory-worthy information found in conversation")
-                    
-            except (json.JSONDecodeError, AttributeError) as e:
-                logger.warning(f"Failed to parse memory response: {memory_analysis}. Error: {str(e)}")
-                
-        except Exception as e:
-            logger.error(f"Error updating memory from conversation: {e}")
-                
-
     async def _handle_ooc_command(self, message: discord.Message):
         """Handle out-of-character commands from the owner"""
         clean_content = message.content.replace("//", "").replace("/ooc", "").strip()
@@ -2060,8 +1390,6 @@ class OpenShape(commands.Bot):
         command = parts[0].lower() if parts else ""
         args = parts[1] if len(parts) > 1 else ""
     
-        # This is just the memory-related part of the _handle_ooc_command method
-
         if command == "regex":
             if not args:
                 # Show help for regex commands
@@ -2168,26 +1496,19 @@ class OpenShape(commands.Bot):
                 
                 embed.add_field(name="Affects", value=", ".join(affects) if affects else "None", inline=False)
                 embed.add_field(name="Status", value="Enabled" if not script.disabled else "Disabled", inline=False)
+                
+                await message.reply(embed=embed)
             else:
                 await message.reply(f"Unknown regex subcommand: {subcommand}")
                 
         elif command == "memory" or command == "wack":
             if args.lower() == "show":
-                memory_display = "**Long-term Memory:**\n"
-                if not self.long_term_memory:
-                    memory_display += "No memories stored yet."
-                else:
-                    # Sort memories alphabetically by topic for better readability
-                    sorted_memories = sorted(self.long_term_memory.items())
-                    for topic, memory_data in sorted_memories:
-                        detail = memory_data["detail"]
-                        source = memory_data["source"]
-                        memory_display += f"- **{topic}**: {detail} (from {source})\n"
+                memory_display = self.memory_manager.format_memories_for_display()
                 await message.reply(memory_display)
             elif args.lower().startswith("search ") and len(parts) > 2:
                 # New command to search memories based on keywords
                 search_term = parts[2]
-                relevant_memories = self._search_memory(search_term)
+                relevant_memories = self.memory_manager.search_memory(search_term)
                 
                 if relevant_memories:
                     memory_display = f"**Memories matching '{search_term}':**\n"
@@ -2201,12 +1522,7 @@ class OpenShape(commands.Bot):
                 if len(mem_parts) == 2:
                     topic, details = mem_parts
                     # Store with the command issuer as source
-                    self.long_term_memory[topic.strip()] = {
-                        "detail": details.strip(),
-                        "source": message.author.display_name,
-                        "timestamp": datetime.datetime.now().isoformat()
-                    }
-                    self._save_memory()
+                    self.memory_manager.add_memory(topic.strip(), details.strip(), message.author.display_name)
                     await message.reply(f"Added memory: {topic.strip()} (from {message.author.display_name})")
                 else:
                     await message.reply(
@@ -2215,15 +1531,12 @@ class OpenShape(commands.Bot):
             elif args.lower().startswith("remove "):
                 # Remove memory
                 topic = args[7:].strip()
-                if topic in self.long_term_memory:
-                    del self.long_term_memory[topic]
-                    self._save_memory()
+                if self.memory_manager.remove_memory(topic):
                     await message.reply(f"Removed memory: {topic}")
                 else:
                     await message.reply(f"Memory topic '{topic}' not found.")
             elif args.lower() == "clear" or command == "wack":
-                self.long_term_memory = {}
-                self._save_memory()
+                self.memory_manager.clear_memories()
                 await message.reply("All memories cleared.")
         elif command == "lore":
             subparts = args.split(" ", 1)
@@ -2235,10 +1548,7 @@ class OpenShape(commands.Bot):
                 lore_parts = subargs.split(":", 1)
                 if len(lore_parts) == 2:
                     keyword, content = lore_parts
-                    self.lorebook_entries.append(
-                        {"keyword": keyword.strip(), "content": content.strip()}
-                    )
-                    self._save_lorebook()
+                    self.lorebook_manager.add_entry(keyword.strip(), content.strip())
                     await message.reply(
                         f"Added lorebook entry for keyword: {keyword.strip()}"
                     )
@@ -2247,34 +1557,26 @@ class OpenShape(commands.Bot):
                         "Invalid format. Use: //lore add Keyword: Content"
                     )
             elif subcommand == "list":
-                lore_display = "**Lorebook Entries:**\n"
-                if not self.lorebook_entries:
-                    lore_display += "No entries yet."
-                else:
-                    for i, entry in enumerate(self.lorebook_entries):
-                        lore_display += f"{i+1}. **{entry['keyword']}**: {entry['content'][:50]}...\n"
+                lore_display = self.lorebook_manager.format_entries_for_display()
                 await message.reply(lore_display)
             elif subcommand == "remove" and subargs:
                 try:
                     index = int(subargs) - 1
-                    if 0 <= index < len(self.lorebook_entries):
-                        removed = self.lorebook_entries.pop(index)
-                        self._save_lorebook()
+                    if self.lorebook_manager.remove_entry(index):
                         await message.reply(
-                            f"Removed lorebook entry for: {removed['keyword']}"
+                            f"Removed lorebook entry #{index+1}"
                         )
                     else:
                         await message.reply("Invalid entry number.")
                 except ValueError:
                     await message.reply("Please provide a valid entry number.")
             elif subcommand == "clear":
-                self.lorebook_entries = []
-                self._save_lorebook()
+                self.lorebook_manager.clear_entries()
                 await message.reply("All lorebook entries cleared.")
 
         elif command == "activate":
             self.activated_channels.add(message.channel.id)
-            self._save_config()
+            self.config_manager.save_config()
             await message.reply(
                 f"{self.character_name} will now respond to all messages in this channel."
             )
@@ -2282,7 +1584,7 @@ class OpenShape(commands.Bot):
         elif command == "deactivate":
             if message.channel.id in self.activated_channels:
                 self.activated_channels.remove(message.channel.id)
-                self._save_config()
+                self.config_manager.save_config()
             await message.reply(
                 f"{self.character_name} will now only respond when mentioned or called by name."
             )
@@ -2314,9 +1616,9 @@ class OpenShape(commands.Bot):
 
         elif command == "save":
             # Save all data
-            self._save_config()
-            self._save_memory()
-            self._save_lorebook()
+            self.config_manager.save_config()
+            self.memory_manager._save_memory()
+            self.lorebook_manager._save_lorebook()
             await message.reply("All data and settings saved!")
 
         elif command == "help":
@@ -2336,121 +1638,6 @@ class OpenShape(commands.Bot):
             help_text += "- `//save` - Save all data and settings\n"
             help_text += "- `//help` - Show this help information\n"
             await message.reply(help_text)
-
-    def _get_channel_conversation(self, channel_id: int) -> List[Dict]:
-        """Get conversation history for a specific channel, limited to 8 messages"""
-        # Initialize conversation storage if not exists
-        if not hasattr(self, "channel_conversations"):
-            self.channel_conversations = {}
-
-        if channel_id not in self.channel_conversations:
-            self.channel_conversations[channel_id] = []
-
-        # Ensure we only keep the last 8 messages
-        if len(self.channel_conversations[channel_id]) > 8:
-            # Keep only the most recent 8 messages
-            self.channel_conversations[channel_id] = self.channel_conversations[channel_id][-8:]
-            
-        return self.channel_conversations[channel_id]
-
-    def _get_relevant_lorebook_entries(self, message_content: str) -> List[str]:
-        """Get lorebook entries relevant to the current message"""
-        relevant_entries = []
-
-        for entry in self.lorebook_entries:
-            # Check if keyword is in the message
-            if entry["keyword"].lower() in message_content.lower():
-                relevant_entries.append(entry["content"])
-
-        return relevant_entries
-
-    async def _generate_response(
-        self,
-        user_name: str,
-        message_content: str,
-        conversation_history: List[Dict],
-        relevant_lore: List[str] = None,
-    ) -> str:
-        """
-        Generate a response using the AI API if configured, otherwise fall back to simple responses.
-        First checks memories for relevant information before making an API call.
-        """
-        # Check if there are any memories related to the message content
-        memory_matches = []
-        for topic, detail in self.long_term_memory.items():
-            # Check if any word in the topic is in the message content (case insensitive)
-            topic_words = topic.lower().split()
-            message_lower = message_content.lower()
-            
-            # Check for topic matches
-            if any(word in message_lower for word in topic_words):
-                memory_matches.append(f"{topic}: {detail}")
-        
-        # Ensure we only use up to 8 messages of history
-        if len(conversation_history) > 8:
-            conversation_history = conversation_history[-8:]
-        
-        # Prepare list of all relevant information
-        relevant_info = []
-        if relevant_lore:
-            relevant_info.extend(relevant_lore)
-        if memory_matches:
-            relevant_info.extend(memory_matches)
-            logger.info(f"Found {len(memory_matches)} relevant memories for response generation")
-        
-        # Try to use the API if configured
-        if self.ai_client and self.chat_model:
-            response = await self._call_chat_api(
-                message_content, user_name, conversation_history, relevant_info
-            )
-            if response:
-                return response
-
-        # Fallback to the original simple response logic
-        # Build a prompt using character information and history
-        prompt = f"""Character: {self.character_name}
-            Description: {self.character_description}
-            Scenario: {self.character_scenario}
-
-            User: {user_name}
-            Message: {message_content}
-            """
-            
-        # Add relevant information (combined lore and memories)
-        if relevant_info and len(relevant_info) > 0:
-            prompt += "Relevant information:\n"
-            for info in relevant_info:
-                prompt += f"- {info}\n"
-
-        # Add conversation history context (limiting to available history)
-        history_to_use = conversation_history[:-1]  # Exclude current message
-        if history_to_use:
-            prompt += "\nRecent conversation:\n"
-            for entry in history_to_use:
-                prompt += f"{entry['name']}: {entry['content']}\n"
-
-        # Detect basic greeting patterns
-        greeting_words = ["hello", "hi", "hey", "greetings", "howdy"]
-        if any(word in message_content.lower() for word in greeting_words):
-            return f"Hello {user_name}! How can I help you today?"
-
-        # Detect questions
-        if "?" in message_content:
-            return f"That's an interesting question! Let me think about that..."
-
-        # Default response
-        return f"I understand you're saying something about '{message_content[:20]}...'. As {self.character_name}, I would respond appropriately based on my personality and our conversation history."
-        # Add helper method for voice disconnection
-
-    async def _disconnect_after_audio(self, voice_client):
-        """Disconnect from voice channel after audio finishes playing"""
-        # Wait a moment to ensure audio is fully played
-        await asyncio.sleep(1)
-
-        # Check if still playing
-        if voice_client and not voice_client.is_playing():
-            await voice_client.disconnect()
-
 
 
 # Main function to run the bot
