@@ -1518,6 +1518,7 @@ class SimpleCharacterBot(commands.Bot):
         - User saying "I have an interview tomorrow at 9am" → {"Job Interview": "User has an interview scheduled tomorrow at 9am"}
 
         Only extract specific, factual information (not vague impressions), and focus on details about the user, not general topics.
+        Unless it is when the user explicitly requests something to be remembered. You should remember such things, regardless of how pointless.
         Your output should be ONLY a valid JSON object with no additional text.
         """
             
@@ -1529,6 +1530,7 @@ class SimpleCharacterBot(commands.Bot):
                 conversation_content,
                 system_prompt=system_prompt
             )
+            print(memory_analysis)
             
             # Process the response to extract memory information
             try:
