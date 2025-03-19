@@ -103,16 +103,31 @@ class SimpleCharacterBot(commands.Bot):
         self.blacklisted_roles = self.character_config.get("blacklisted_roles", [])
 
     def _load_storage(self):
-        """Load memory and lorebook from files"""
+        """Load memory and lorebook from files with updated memory structure"""
         # Load memory
         if os.path.exists(self.memory_path):
             with open(self.memory_path, "r", encoding="utf-8") as f:
-                self.long_term_memory = json.load(f)
+                loaded_memory = json.load(f)
+                
+                # Check if we need to migrate old memory format
+                if loaded_memory and isinstance(next(iter(loaded_memory.values())), str):
+                    # Old format detected - migrate to new format
+                    migrated_memory = {}
+                    for topic, detail in loaded_memory.items():
+                        migrated_memory[topic] = {
+                            "detail": detail,
+                            "source": "Unknown",  # Default source for migrated memories
+                            "timestamp": datetime.datetime.now().isoformat()
+                        }
+                    self.long_term_memory = migrated_memory
+                else:
+                    # Already in new format or empty
+                    self.long_term_memory = loaded_memory
         else:
             self.long_term_memory = {}
             self._save_memory()
 
-        # Load lorebook
+        # Load lorebook (unchanged)
         if os.path.exists(self.lorebook_path):
             with open(self.lorebook_path, "r", encoding="utf-8") as f:
                 self.lorebook_entries = json.load(f)
@@ -319,15 +334,17 @@ class SimpleCharacterBot(commands.Bot):
         )
 
     async def memory_command(self, interaction: discord.Interaction):
-        """View or manage memories"""
+        """View or manage memories with source attribution"""
         # Only allow the owner to manage memories
         if interaction.user.id != self.owner_id:
             memory_display = "**Long-term Memory:**\n"
             if not self.long_term_memory:
                 memory_display += "No memories stored yet."
             else:
-                for topic, details in self.long_term_memory.items():
-                    memory_display += f"- **{topic}**: {details}\n"
+                for topic, memory_data in self.long_term_memory.items():
+                    detail = memory_data["detail"]
+                    source = memory_data["source"]
+                    memory_display += f"- **{topic}**: {detail} (from {source})\n"
 
             await interaction.response.send_message(memory_display)
             return
@@ -339,8 +356,10 @@ class SimpleCharacterBot(commands.Bot):
         if not self.long_term_memory:
             memory_display += "No memories stored yet."
         else:
-            for topic, details in self.long_term_memory.items():
-                memory_display += f"- **{topic}**: {details}\n"
+            for topic, memory_data in self.long_term_memory.items():
+                detail = memory_data["detail"]
+                source = memory_data["source"]
+                memory_display += f"- **{topic}**: {detail} (from {source})\n"
 
         await interaction.response.send_message(memory_display, view=view)
 
@@ -495,12 +514,13 @@ class SimpleCharacterBot(commands.Bot):
         """
         Search for memories relevant to the current message content.
         Uses more sophisticated matching to find relevant memories.
+        Now includes source attribution in the returned memory strings.
         
         Args:
             message_content: The user's message content
             
         Returns:
-            List of relevant memory strings in format "Topic: Detail"
+            List of relevant memory strings in format "Topic: Detail (from Source)"
         """
         if not self.long_term_memory:
             return []
@@ -511,9 +531,11 @@ class SimpleCharacterBot(commands.Bot):
         # Score each memory for relevance
         memory_scores = {}
         
-        for topic, detail in self.long_term_memory.items():
+        for topic, memory_data in self.long_term_memory.items():
             score = 0
             topic_lower = topic.lower()
+            detail = memory_data["detail"]
+            source = memory_data["source"]
             
             # Direct topic match (highest priority)
             if topic_lower in message_content.lower():
@@ -533,7 +555,8 @@ class SimpleCharacterBot(commands.Bot):
                     
             # If we found any relevance, add to potential matches
             if score > 0:
-                memory_scores[topic] = (score, f"{topic}: {detail}")
+                formatted_memory = f"{topic}: {detail} (from {source})"
+                memory_scores[topic] = (score, formatted_memory)
         
         # Sort by relevance score (highest first)
         sorted_memories = sorted(memory_scores.items(), key=lambda x: x[1][0], reverse=True)
@@ -546,7 +569,6 @@ class SimpleCharacterBot(commands.Bot):
             logger.info(f"Found {len(memory_matches)} relevant memories: {[m.split(':')[0] for m in memory_matches]}")
         
         return memory_matches
-    
     async def _call_chat_api(
         self,
         user_message,
@@ -1468,7 +1490,7 @@ class SimpleCharacterBot(commands.Bot):
     
     
     async def _update_memory_from_conversation(self, user_name, user_message, bot_response):
-        """Extract and store important information from conversations as memories"""
+        """Extract and store important information from conversations as memories with user attribution"""
         if not self.ai_client or not self.chat_model:
             return
             
@@ -1512,20 +1534,24 @@ class SimpleCharacterBot(commands.Bot):
             try:
                 # Look for JSON in the response (in case there's any non-JSON text)
                 import re
-                print(memory_analysis)
                 json_match = re.search(r'\{.*\}', memory_analysis, re.DOTALL)
                 
                 if json_match:
                     memory_json = json_match.group(0)
                     memory_data = json.loads(memory_json)
                     
-                    # Update memory with extracted information
+                    # Update memory with extracted information and user attribution
                     for topic, detail in memory_data.items():
                         if topic and detail:  # Make sure they're not empty
                             # Keep only meaningful memories (more than 3 chars)
                             if len(detail) > 3:
-                                self.long_term_memory[topic] = detail
-                                logger.info(f"Added memory: {topic}: {detail}")
+                                # Store memory with user attribution
+                                self.long_term_memory[topic] = {
+                                    "detail": detail,
+                                    "source": user_name,  # Record who provided this information
+                                    "timestamp": datetime.datetime.now().isoformat()
+                                }
+                                logger.info(f"Added memory from {user_name}: {topic}: {detail}")
                     
                     # Save memory if anything was added
                     if memory_data:
@@ -1538,7 +1564,7 @@ class SimpleCharacterBot(commands.Bot):
                 
         except Exception as e:
             logger.error(f"Error updating memory from conversation: {e}")
-            
+                
 
     async def _handle_ooc_command(self, message: discord.Message):
         """Handle out-of-character commands from the owner"""
@@ -1557,10 +1583,12 @@ class SimpleCharacterBot(commands.Bot):
                 else:
                     # Sort memories alphabetically by topic for better readability
                     sorted_memories = sorted(self.long_term_memory.items())
-                    for topic, details in sorted_memories:
-                        memory_display += f"- **{topic}**: {details}\n"
+                    for topic, memory_data in sorted_memories:
+                        detail = memory_data["detail"]
+                        source = memory_data["source"]
+                        memory_display += f"- **{topic}**: {detail} (from {source})\n"
                 await message.reply(memory_display)
-            elif args.lower() == "search" and len(parts) > 2:
+            elif args.lower().startswith("search ") and len(parts) > 2:
                 # New command to search memories based on keywords
                 search_term = parts[2]
                 relevant_memories = self._search_memory(search_term)
@@ -1568,9 +1596,7 @@ class SimpleCharacterBot(commands.Bot):
                 if relevant_memories:
                     memory_display = f"**Memories matching '{search_term}':**\n"
                     for memory in relevant_memories:
-                        topic, detail = memory.split(":", 1)
-                        memory_display += f"- **{topic}**:{detail}\n"
-                    await message.reply(memory_display)
+                        await message.reply(memory_display + memory)
                 else:
                     await message.reply(f"No memories found matching '{search_term}'")
             elif args.lower().startswith("add "):
@@ -1578,9 +1604,14 @@ class SimpleCharacterBot(commands.Bot):
                 mem_parts = args[4:].split(":", 1)
                 if len(mem_parts) == 2:
                     topic, details = mem_parts
-                    self.long_term_memory[topic.strip()] = details.strip()
+                    # Store with the command issuer as source
+                    self.long_term_memory[topic.strip()] = {
+                        "detail": details.strip(),
+                        "source": message.author.display_name,
+                        "timestamp": datetime.datetime.now().isoformat()
+                    }
                     self._save_memory()
-                    await message.reply(f"Added memory: {topic.strip()}")
+                    await message.reply(f"Added memory: {topic.strip()} (from {message.author.display_name})")
                 else:
                     await message.reply(
                         "Invalid format. Use: //memory add Topic: Details"
@@ -1598,7 +1629,6 @@ class SimpleCharacterBot(commands.Bot):
                 self.long_term_memory = {}
                 self._save_memory()
                 await message.reply("All memories cleared.")
-
         elif command == "lore":
             subparts = args.split(" ", 1)
             subcommand = subparts[0].lower() if subparts else ""
@@ -1879,27 +1909,30 @@ class MemoryManagementView(discord.ui.View):
         self.bot = bot
 
     @discord.ui.button(label="Add Memory", style=discord.ButtonStyle.primary)
-    async def add_memory(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def add_memory(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = MemoryEntryModal()
 
         async def on_submit(modal_interaction):
             topic = modal.topic_input.value
             details = modal.details_input.value
-            self.bot.long_term_memory[topic] = details
+            
+            # Store memory with user attribution
+            self.bot.long_term_memory[topic] = {
+                "detail": details,
+                "source": interaction.user.display_name,  # Use the name of the person adding the memory
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
             self.bot._save_memory()
             await modal_interaction.response.send_message(
-                f"Added memory: {topic}", ephemeral=True
+                f"Added memory: {topic} (from {interaction.user.display_name})", ephemeral=True
             )
 
         modal.on_submit = on_submit
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Clear All Memory", style=discord.ButtonStyle.danger)
-    async def clear_memory(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def clear_memory(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.bot.long_term_memory = {}
         self.bot._save_memory()
         await interaction.response.send_message("Memory cleared!", ephemeral=True)
