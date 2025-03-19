@@ -556,6 +556,26 @@ class SimpleCharacterBot(commands.Bot):
 
 
 
+    def _extract_speech_text(self, text, ignore_asterisks=False, only_narrate_quotes=False):
+        result = text
+        if ignore_asterisks:
+            result = re.sub(r'\*[^*]*\*', '', result)
+        
+        if only_narrate_quotes:
+            # Extract only text within quotes
+            quotes = re.findall(r'"([^"]*)"', result)
+            if quotes:
+                # Join all quoted text with appropriate pauses
+                result = '... '.join(quotes)
+            else:
+                # If no quotes found, return empty string or original based on preference
+                result = ''
+        
+        # Clean up any extra whitespace
+        result = ' '.join(result.split())
+    
+        return result
+
     # Add a method to generate TTS audio
     async def _generate_tts(self, text):
         """Generate TTS audio from text"""
@@ -568,6 +588,15 @@ class SimpleCharacterBot(commands.Bot):
             return None
 
         try:
+            speech_text = self._extract_speech_text(
+                text, 
+                ignore_asterisks=True,
+                only_narrate_quotes=True
+            )
+            
+            if not speech_text:
+                return None
+            
             # Generate a filename based on text hash
             import hashlib
 
@@ -581,7 +610,7 @@ class SimpleCharacterBot(commands.Bot):
 
             # Call TTS API
             response = self.ai_client.audio.speech.create(
-                model=self.tts_model, voice=self.tts_voice, input=text
+                model=self.tts_model, voice=self.tts_voice, input=speech_text
             )
 
             # Save audio file
