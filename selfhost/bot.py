@@ -25,10 +25,7 @@ class SimpleCharacterBot(commands.Bot):
             self.character_config = json.load(f)
 
         # Setup intents
-        intents = discord.Intents.default()
-        intents.messages = True
-        intents.message_content = True
-        intents.reactions = True
+        intents = discord.Intents.all()
 
         # Initialize the bot
         super().__init__(
@@ -168,17 +165,13 @@ class SimpleCharacterBot(commands.Bot):
     async def setup_hook(self):
         """Register slash commands when the bot is starting up"""
         # Basic commands
-        for guild_id in self.character_config.get("allowed_guilds", []):
-            guild = discord.Object(id=guild_id)
-
-            self.tree.add_command(
-                app_commands.Command(
-                    name="api_settings",
-                    description="Configure AI API settings",
-                    callback=self.api_settings_command,
-                ),
-                guild=guild,
-            )
+        self.tree.add_command(
+            app_commands.Command(
+                name="api_settings",
+                description="Configure AI API settings",
+                callback=self.api_settings_command,
+            ),
+        )
 
         self.tree.add_command(
             app_commands.Command(
@@ -869,11 +862,13 @@ class SimpleCharacterBot(commands.Bot):
     async def on_ready(self):
         """Called when the bot is ready"""
         logger.info(f"Logged in as {self.user.name} ({self.user.id})")
+        await self.tree.sync()
         logger.info(f"Character name: {self.character_name}")
 
     async def on_message(self, message: discord.Message):
         """Process incoming messages and respond if appropriate"""
         # Ignore own messages
+
         if message.author == self.user:
             return
 
@@ -909,86 +904,88 @@ class SimpleCharacterBot(commands.Bot):
             return
 
         if should_respond:
-            # Remove mentions from the message
-            clean_content = re.sub(r"<@!?(\d+)>", "", message.content).strip()
+            async with message.channel.typing():
+                # Remove mentions from the message
+                clean_content = re.sub(r"<@!?(\d+)>", "", message.content).strip()
 
-            # Get conversation history for this channel
-            channel_history = self._get_channel_conversation(message.channel.id)
+                # Get conversation history for this channel
+                channel_history = self._get_channel_conversation(message.channel.id)
 
-            # Add the new message to history
-            channel_history.append(
-                {
-                    "role": "user",
-                    "name": message.author.display_name,
-                    "content": clean_content,
-                    "timestamp": datetime.datetime.now().isoformat(),
-                }
-            )
+                # Add the new message to history
+                channel_history.append(
+                    {
+                        "role": "user",
+                        "name": message.author.display_name,
+                        "content": clean_content,
+                        "timestamp": datetime.datetime.now().isoformat(),
+                    }
+                )
 
-            # Get relevant lorebook entries
-            relevant_lore = self._get_relevant_lorebook_entries(clean_content)
+                # Get relevant lorebook entries
+                relevant_lore = self._get_relevant_lorebook_entries(clean_content)
 
-            # Generate a response based on persona and history
-            response = await self._generate_response(
-                message.author.display_name,
-                clean_content,
-                channel_history,
-                relevant_lore,
-            )
+                # Generate a response based on persona and history
+                response = await self._generate_response(
+                    message.author.display_name,
+                    clean_content,
+                    channel_history,
+                    relevant_lore,
+                )
 
-            # Add response to history
-            channel_history.append(
-                {
-                    "role": "assistant",
-                    "name": self.character_name,
-                    "content": response,
-                    "timestamp": datetime.datetime.now().isoformat(),
-                }
-            )
+                # Add response to history
+                channel_history.append(
+                    {
+                        "role": "assistant",
+                        "name": self.character_name,
+                        "content": response,
+                        "timestamp": datetime.datetime.now().isoformat(),
+                    }
+                )
 
-            # Save conversation periodically (every 10 messages)
-            if len(channel_history) >= 10:
-                self._save_conversation(message.channel.id, channel_history)
-                channel_history = []  # Reset after saving
+                # Save conversation periodically (every 10 messages)
+                if len(channel_history) >= 10:
+                    self._save_conversation(message.channel.id, channel_history)
+                    channel_history = []  # Reset after saving
 
-            # Format response with name if enabled
-            formatted_response = (
-                f"**{self.character_name}**: {response}"
-                if self.add_character_name
-                else response
-            )
+                # Format response with name if enabled
+                formatted_response = (
+                    f"**{self.character_name}**: {response}"
+                    if self.add_character_name
+                    else response
+                )
 
-            # Send the response and add reaction for deletion
-            sent_message = await message.reply(formatted_response)
-            await sent_message.add_reaction("🗑️")
+                # Send the response and add reaction for deletion
+                if not self.use_tts:
+                    sent_message = await message.reply(formatted_response)
+                    await sent_message.add_reaction("🗑️")
 
-            # Generate and send TTS if enabled
-            if self.use_tts and message.guild:
-                audio_file = await self._generate_tts(response)
-                if audio_file:
-                    try:
-                        # Check if user is in a voice channel
-                        if message.author.voice and message.author.voice.channel:
-                            voice_channel = message.author.voice.channel
+                # Generate and send TTS if enabled
+                if self.use_tts and message.guild:
+                    audio_file = await self._generate_tts(response)
+                    if audio_file:
+                        try:
+                            # Check if user is in a voice channel
+                            if message.author.voice and message.author.voice.channel:
+                                voice_channel = message.author.voice.channel
 
-                            # Connect to voice channel
-                            voice_client = message.guild.voice_client
-                            if voice_client:
-                                if voice_client.channel != voice_channel:
-                                    await voice_client.move_to(voice_channel)
-                            else:
-                                voice_client = await voice_channel.connect()
+                                # Connect to voice channel
+                                voice_client = message.guild.voice_client
+                                if voice_client:
+                                    if voice_client.channel != voice_channel:
+                                        await voice_client.move_to(voice_channel)
+                                else:
+                                    voice_client = await voice_channel.connect()
 
-                            # Play audio
-                            voice_client.play(
-                                discord.FFmpegPCMAudio(audio_file),
-                                after=lambda e: asyncio.run_coroutine_threadsafe(
-                                    self._disconnect_after_audio(voice_client),
-                                    self.loop,
-                                ),
-                            )
-                    except Exception as e:
-                        logger.error(f"Error playing TTS audio: {e}")
+                                # Play audio
+                                voice_client.play(
+                                    discord.FFmpegPCMAudio(audio_file),
+                                    after=lambda e: asyncio.run_coroutine_threadsafe(
+                                        self._disconnect_after_audio(voice_client),
+                                        self.loop,
+                                    ),
+                                )
+                        except Exception as e:
+                            logger.error(f"Error playing TTS audio: {e}")
 
     async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
         """Handle reactions to messages"""
