@@ -10,15 +10,15 @@ from typing import Dict, List, Optional, Any
 from openai import AsyncOpenAI
 import asyncio
 import aiohttp
-import io
+from discord.ext import tasks
 
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("simple_character_bot")
+logger = logging.getLogger("openshape")
 
 
-class SimpleCharacterBot(commands.Bot):
+class OpenShape(commands.Bot):
     def __init__(self, config_path: str, *args, **kwargs):
         # Load configuration
         with open(config_path, "r", encoding="utf-8") as f:
@@ -57,6 +57,7 @@ class SimpleCharacterBot(commands.Bot):
         self.personality_conversational_goals = self.character_config.get("personality_conversational_goals")
         self.personality_conversational_examples = self.character_config.get("personality_conversational_examples")
         self.character_scenario = self.character_config.get("character_scenario", "")
+        
 
         # API configuration for AI integration
         self.api_settings = self.character_config.get("api_settings", {})
@@ -109,6 +110,10 @@ class SimpleCharacterBot(commands.Bot):
         # Moderation settings
         self.blacklisted_users = self.character_config.get("blacklisted_users", [])
         self.blacklisted_roles = self.character_config.get("blacklisted_roles", [])
+        self.conversation_timeout = self.character_config.get("conversation_timeout", 30)  # Default 30 minutes
+        
+        # Start the cleanup task
+       
 
     def _load_storage(self):
         """Load memory and lorebook from files with updated memory structure"""
@@ -195,8 +200,44 @@ class SimpleCharacterBot(commands.Bot):
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(conversation, f, indent=2)
 
+    # Add a task loop to clean up old conversations
+    @tasks.loop(minutes=5)  # Check every 5 minutes
+    async def conversation_cleanup(self):
+        """Task to clean up old conversations that haven't been active recently"""
+        if not hasattr(self, "channel_conversations"):
+            return
+        
+        current_time = datetime.datetime.now()
+        channels_to_cleanup = []
+        
+        # Find channels with inactive conversations
+        for channel_id, conversation in self.channel_conversations.items():
+            if not conversation:
+                continue
+                
+            # Get timestamp from last message
+            try:
+                last_message = conversation[-1]
+                last_timestamp = last_message.get("timestamp")
+                
+                if last_timestamp:
+                    last_time = datetime.datetime.fromisoformat(last_timestamp)
+                    time_diff = current_time - last_time
+                    
+                    # If conversation is older than timeout, mark for cleanup
+                    if time_diff.total_seconds() > (self.conversation_timeout * 60):
+                        channels_to_cleanup.append(channel_id)
+                        logger.info(f"Cleaning up conversation in channel {channel_id} - inactive for {time_diff.total_seconds()/60:.1f} minutes")
+            except (ValueError, KeyError, IndexError) as e:
+                logger.error(f"Error processing conversation timestamps: {e}")
+        
+        # Clean up the inactive conversations
+        for channel_id in channels_to_cleanup:
+            del self.channel_conversations[channel_id]
+
     async def setup_hook(self):
         """Register slash commands when the bot is starting up"""
+        self.conversation_cleanup.start()
         # Basic commands
         self.tree.add_command(
             app_commands.Command(
@@ -276,6 +317,14 @@ class SimpleCharacterBot(commands.Bot):
                 name="edit_preferences",
                 description="Edit what the character likes and dislikes",
                 callback=self.edit_preferences_command,
+            ),
+        )
+        # 
+        self.tree.add_command(
+            app_commands.Command(
+                name="sleep_command",
+                description="Generate a long term memory.",
+                callback=self.sleep_command,
             ),
         )
         # Configuration commands (owner only)
@@ -530,6 +579,181 @@ class SimpleCharacterBot(commands.Bot):
         await interaction.response.send_message(
             "Select preferences to edit:", view=view, ephemeral=True
         )
+        
+    async def sleep_command(self, interaction: discord.Interaction):
+        """Process recent messages to extract and store memories before going to sleep"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+        
+        await interaction.response.defer(thinking=True)
+        
+        # First, acknowledge the command
+        await interaction.followup.send(f"{self.character_name} is analyzing recent conversations and going to sleep...")
+        
+        try:
+            # Fetch recent messages from the channel (up to 30)
+            recent_messages = []
+            async for message in interaction.channel.history(limit=30):
+                # Skip system messages and bot's own messages
+                if message.author.bot and message.author.id != self.user.id:
+                    continue
+                
+                # Add message to our list
+                recent_messages.append({
+                    "author": message.author.display_name,
+                    "content": message.content,
+                    "id": message.id,
+                    "timestamp": message.created_at.isoformat()
+                })
+            
+            # Sort messages by timestamp (oldest first)
+            recent_messages.sort(key=lambda m: m["timestamp"])
+            
+            # We don't want to process all messages individually as that would be inefficient
+            # Instead, we'll batch them in small conversations
+            
+            # First, let's group messages by author over short time spans
+            batched_conversations = []
+            current_batch = []
+            last_author = None
+            
+            for msg in recent_messages:
+                # If this is a new author or the batch is getting too big, start a new batch
+                if last_author != msg["author"] or len(current_batch) >= 5:
+                    if current_batch:
+                        batched_conversations.append(current_batch)
+                    current_batch = [msg]
+                else:
+                    current_batch.append(msg)
+                
+                last_author = msg["author"]
+            
+            # Add the final batch if it exists
+            if current_batch:
+                batched_conversations.append(current_batch)
+            
+            # Now process each batch to extract memories
+            memories_created = 0
+            
+            for batch in batched_conversations:
+                # Skip if this is just the bot talking
+                if all(msg["author"] == self.character_name for msg in batch):
+                    continue
+                
+                # Construct a conversation to analyze
+                conversation_content = ""
+                for msg in batch:
+                    conversation_content += f"{msg['author']}: {msg['content']}\n"
+                
+                # Check if this conversation has substance (more than just a greeting or short message)
+                if len(conversation_content.split()) < 10:
+                    continue
+                
+                # Extract memories from this conversation batch
+                created = await self._extract_memories_from_text(conversation_content)
+                memories_created += created
+                
+                # Throttle requests to avoid rate limits
+                await asyncio.sleep(0.5)
+            
+            # Send a summary of what happened
+            if memories_created > 0:
+                response = f"{self.character_name} has processed the recent conversations and created {memories_created} new memories!"
+            else:
+                response = f"{self.character_name} analyzed the conversations but didn't find any significant information to remember."
+                
+            await interaction.channel.send(response)
+            
+        except Exception as e:
+            logger.error(f"Error during sleep command: {e}")
+            await interaction.channel.send(f"Something went wrong while processing recent messages: {str(e)[:100]}...")
+            
+    async def _extract_memories_from_text(self, text_content):
+        """Extract and store important information from any text as memories"""
+        if not self.ai_client or not self.chat_model:
+            return 0
+        
+        try:
+            # Create a system prompt for memory extraction
+            system_prompt = """You are an AI designed to extract meaningful information from conversations or text that would be valuable to remember for future interactions.
+
+            Instructions:
+            1. Analyze the provided text.
+            2. Identify significant information such as:
+               - Personal preferences (likes, dislikes)
+               - Background information (job, location, family)
+               - Important events (past or planned)
+               - Goals or needs expressed
+               - Problems being faced
+               - Relationships between people
+
+            3. For each piece of significant information, output a JSON object with these key-value pairs:
+               - "topic": A short, descriptive topic name (e.g., "User's Job", "Birthday Plans")
+               - "detail": A concise factual statement summarizing what to remember
+               - "importance": A number from 1-10 indicating how important this memory is (10 being most important)
+
+            4. Format your output as a JSON array of these objects.
+            5. If nothing significant was found, return an empty array: []
+
+            Only extract specific, factual information, and focus on details that would be useful to remember in future conversations.
+            Your output should be ONLY a valid JSON array with no additional text.
+            """
+            
+            # Call API to analyze conversation
+            memory_analysis = await self._call_chat_api(
+                text_content,
+                system_prompt=system_prompt
+            )
+            
+            # Process the response to extract memory information
+            try:
+                # Look for JSON in the response (in case there's any non-JSON text)
+                import re
+                json_match = re.search(r'\[.*\]', memory_analysis, re.DOTALL)
+                
+                if json_match:
+                    memory_json = json_match.group(0)
+                    memory_data = json.loads(memory_json)
+                    
+                    # Track how many memories we created
+                    memories_created = 0
+                    
+                    # Update memory with extracted information
+                    for memory in memory_data:
+                        topic = memory.get("topic")
+                        detail = memory.get("detail")
+                        importance = memory.get("importance", 5)
+                        
+                        if topic and detail and importance >= 3:  # Only store memories with importance >= 3
+                            # Store memory with system attribution
+                            self.long_term_memory[topic] = {
+                                "detail": detail,
+                                "source": "Sleep Analysis",
+                                "timestamp": datetime.datetime.now().isoformat(),
+                                "importance": importance
+                            }
+                            logger.info(f"Added memory from sleep: {topic}: {detail} (importance: {importance})")
+                            memories_created += 1
+                    
+                    # Save memory if anything was added
+                    if memories_created > 0:
+                        self._save_memory()
+                    
+                    return memories_created
+                else:
+                    logger.info("No memory-worthy information found in sleep analysis")
+                    return 0
+                    
+            except (json.JSONDecodeError, AttributeError) as e:
+                logger.warning(f"Failed to parse memory response in sleep: {memory_analysis[:100]}... Error: {str(e)}")
+                return 0
+                
+        except Exception as e:
+            logger.error(f"Error in sleep memory extraction: {e}")
+            return 0
     async def memory_command(self, interaction: discord.Interaction):
         """View or manage memories with source attribution"""
         # Only allow the owner to manage memories
@@ -2269,7 +2493,7 @@ class SettingsView(discord.ui.View):
 # Main function to run the bot
 def run_bot(config_path: str):
     """Run the character bot with the specified configuration file"""
-    bot = SimpleCharacterBot(config_path)
+    bot = OpenShape(config_path)
 
     # Get token from config
     with open(config_path, "r", encoding="utf-8") as f:
