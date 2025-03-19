@@ -220,43 +220,56 @@ def create_lorebook_json(brain_data):
             content = entry["content"]
             title = " ".join(content.split()[:5]) + "..." if len(content.split()) > 5 else content
             
-            # Add to lorebook with the title as key and content as value
+            # Add to lorebook with the title as key and value
             lorebook.append({title: content})
     
     return lorebook
 
 def save_json_files(parsed_data, output_dir="."):
     """Save the parsed data to JSON files"""
+    # Create the output directory and the character_data subdirectory
     os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.path.join(output_dir, "character_data"), exist_ok=True)
     
     # Save character_config.json
     with open(os.path.join(output_dir, "character_config.json"), 'w', encoding='utf-8') as f:
         json.dump(parsed_data["character_config"], f, indent=2)
     
     # Save memory.json
-    with open(os.path.join(output_dir, "memory.json"), 'w', encoding='utf-8') as f:
+    with open(os.path.join(output_dir, "character_data", "memory.json"), 'w', encoding='utf-8') as f:
         json.dump(parsed_data["memory"], f, indent=2)
     
     # Save lorebook.json
-    with open(os.path.join(output_dir, "lorebook.json"), 'w', encoding='utf-8') as f:
+    with open(os.path.join(output_dir, "character_data", "lorebook.json"), 'w', encoding='utf-8') as f:
         json.dump(parsed_data["lorebook"], f, indent=2)
     
     print(f"Files saved to {output_dir}")
 
 def main():
-    # Get file paths from user
-    shapes_json_path = input("Enter the path to shapes.json: ")
-    brain_json_path = input("Enter the path to brain.json (or press Enter to skip): ")
+    # Get file paths from user with defaults to current directory
+    shapes_json_path = input("Enter the path to shapes.json (or press Enter for './shapes.json'): ") or "./shapes.json"
+    brain_json_path = input("Enter the path to brain.json (or press Enter for './brain.json'): ") or "./brain.json"
     output_dir = input("Enter the output directory (or press Enter for current directory): ") or "."
     
-    # Parse data
-    if not brain_json_path.strip():
+    # Check if brain.json exists, set to None if it doesn't
+    if not os.path.exists(brain_json_path):
+        print(f"Note: {brain_json_path} not found. Proceeding without brain data.")
         brain_json_path = None
     
-    parsed_data = parse_shapes_data(shapes_json_path, brain_json_path)
-    
-    # Save to files
-    save_json_files(parsed_data, output_dir)
+    try:
+        # Parse data
+        parsed_data = parse_shapes_data(shapes_json_path, brain_json_path)
+        
+        # Save to files
+        save_json_files(parsed_data, output_dir)
+        
+        print("Conversion completed successfully!")
+    except FileNotFoundError as e:
+        print(f"Error: File not found - {e}")
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON format - {e}")
+    except Exception as e:
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
     main()
