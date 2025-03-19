@@ -13,6 +13,9 @@ logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("openshape.vector_memory")
 
+# Maximum number of memories per server
+MAX_MEMORIES_PER_SERVER = 100
+
 class SharedChromaManager:
     """
     Singleton manager for shared ChromaDB instance across multiple bots
@@ -46,58 +49,56 @@ class SharedChromaManager:
             logger.error(f"Failed to initialize ChromaDB client: {e}")
             raise
     
-    def get_collection_for_bot(self, bot_id: str, bot_name: str) -> chromadb.Collection:
-        """Get or create a collection for a specific bot"""
-        collection_name = bot_id.replace('-', '_')  # Sanitize ID for Chroma
-        logger.info(f"Attempting to get/create collection {collection_name} for {bot_name}")
+    def get_collection_for_bot(self, collection_name: str, display_name: str) -> chromadb.Collection:
+        """Get or create a collection with the specified name"""
+        logger.info(f"Attempting to get/create collection {collection_name} for {display_name}")
         
         try:
-            # In ChromaDB v0.6.0, list_collections() returns collection names directly
-            all_collections = self.client.list_collections()
-            print(all_collections)
+            # Fix for ChromaDB v0.6.0: list_collections() returns only names
+            collection_names = [coll for coll in self.client.list_collections()]
             
-            # Check if collection exists directly by name comparison
-            collection_exists = collection_name in all_collections
-            
-            if collection_exists:
+            # Check if collection exists by name comparison
+            if collection_name in collection_names:
                 # Collection exists, get it
                 collection = self.client.get_collection(name=collection_name)
                 count = collection.count()
-                logger.info(f"Retrieved existing collection for {bot_name} (ID: {collection_name}) with {count} memories")
+                logger.info(f"Retrieved existing collection {collection_name} with {count} memories")
                 return collection
             else:
                 # Collection doesn't exist, create it
                 collection = self.client.create_collection(
                     name=collection_name,
-                    metadata={"bot_id": bot_id, "bot_name": bot_name}
+                    metadata={"display_name": display_name}
                 )
                 # Small delay to ensure collection is fully created
                 time.sleep(0.5)
-                logger.info(f"Created new collection for {bot_name} (ID: {collection_name})")
+                logger.info(f"Created new collection {collection_name}")
                 return collection
                 
         except Exception as e:
             logger.error(f"Error getting/creating collection: {e}")
-            # Try a different approach for ChromaDB v0.6.0
+            # Try a different approach as fallback
             try:
                 # Direct attempt to get the collection, creates if doesn't exist
                 collection = self.client.get_or_create_collection(
                     name=collection_name,
-                    metadata={"bot_id": bot_id, "bot_name": bot_name}
+                    metadata={"display_name": display_name}
                 )
                 count = collection.count()
-                logger.info(f"Retrieved/created collection for {bot_name} (ID: {collection_name}) with {count} memories")
+                logger.info(f"Retrieved/created collection {collection_name} with {count} memories")
                 return collection
             except Exception as nested_e:
                 logger.error(f"Second attempt failed: {nested_e}")
                 raise
 
 class ChromaMemoryManager:
-    """Memory manager using ChromaDB with shared instance support"""
+    """Memory manager using ChromaDB with per-server collections"""
     
     def __init__(self, bot, shared_db_path: str = "shared_memory"):
         """Initialize ChromaMemoryManager with bot instance and shared ChromaDB client"""
         self.bot = bot
+        # Dictionary to store collections by guild ID
+        self.guild_collections = {}
         
         # Create data directory if it doesn't exist
         if hasattr(bot, 'data_dir') and not os.path.exists(bot.data_dir):
@@ -159,15 +160,17 @@ class ChromaMemoryManager:
         # Get the shared ChromaDB manager
         self.chroma_manager = SharedChromaManager.get_instance(shared_db_path)
         
-        # Get or create a collection for this bot
+        # Initialize default "global" collection for backward compatibility
+        # This is for memories that existed before the server-specific change
+        collection_name = bot.bot_id.replace('-', '_')
         try:
             self.collection = self.chroma_manager.get_collection_for_bot(
-                bot.bot_id, 
+                collection_name,
                 bot.character_name
             )
-            logger.info(f"Successfully connected to collection with {self.collection.count()} memories")
+            logger.info(f"Successfully connected to global collection with {self.collection.count()} memories")
         except Exception as e:
-            logger.error(f"Failed to get/create collection: {e}")
+            logger.error(f"Failed to get/create global collection: {e}")
             raise
         
         # Legacy memory migration path
@@ -176,6 +179,87 @@ class ChromaMemoryManager:
         # Migrate legacy memories if available
         if self.memory_path and os.path.exists(self.memory_path):
             self._migrate_legacy_memories()
+    
+    def get_collection_for_guild(self, guild_id: str) -> chromadb.Collection:
+        """Get or create a collection for a specific guild"""
+        # Use "global" for DMs or non-guild contexts
+        if guild_id == "global":
+            return self.collection
+            
+        # Check if we already have this guild's collection
+        if guild_id in self.guild_collections:
+            return self.guild_collections[guild_id]
+            
+        # Create a new collection for this guild
+        collection_name = f"{self.bot.bot_id}_guild_{guild_id}".replace('-', '_')
+        display_name = f"{self.bot.character_name} (Guild: {guild_id})"
+        
+        try:
+            collection = self.chroma_manager.get_collection_for_bot(
+                collection_name,
+                display_name
+            )
+            
+            # Cache the collection for future use
+            self.guild_collections[guild_id] = collection
+            logger.info(f"Created/retrieved collection for guild {guild_id} with {collection.count()} memories")
+            return collection
+        except Exception as e:
+            logger.error(f"Error accessing collection for guild {guild_id}: {e}")
+            # Fall back to global collection if there's an error
+            return self.collection
+
+    def _enforce_memory_limit(self, collection, guild_id: str):
+        """
+        Enforce the memory limit for a guild by removing oldest memories when exceeded
+        """
+        try:
+            # Check current count
+            count = collection.count()
+            
+            # If under limit, no action needed
+            if count <= MAX_MEMORIES_PER_SERVER:
+                return
+            
+            # Get all memories
+            results = collection.get()
+            
+            if not results or not results['metadatas'] or len(results['metadatas']) == 0:
+                return
+                
+            # Prepare for sorting by timestamp
+            memories_with_time = []
+            for i, metadata in enumerate(results['metadatas']):
+                memory_id = results['ids'][i]
+                timestamp = metadata.get('timestamp', '1970-01-01T00:00:00')
+                
+                # Parse timestamp
+                try:
+                    dt = datetime.datetime.fromisoformat(timestamp)
+                    timestamp_value = dt.timestamp()
+                except (ValueError, TypeError):
+                    timestamp_value = 0
+                    
+                memories_with_time.append((memory_id, timestamp_value))
+            
+            # Sort by timestamp (oldest first)
+            memories_with_time.sort(key=lambda x: x[1])
+            
+            # Calculate how many to remove
+            to_remove = count - MAX_MEMORIES_PER_SERVER
+            if to_remove <= 0:
+                return
+                
+            # Get IDs to remove (oldest first)
+            ids_to_remove = [m[0] for m in memories_with_time[:to_remove]]
+            
+            # Remove the oldest memories
+            collection.delete(ids=ids_to_remove)
+            
+            logger.info(f"Removed {len(ids_to_remove)} oldest memories from guild {guild_id} to maintain limit of {MAX_MEMORIES_PER_SERVER}")
+            
+        except Exception as e:
+            logger.error(f"Error enforcing memory limit: {e}")
             
     def _migrate_legacy_memories(self):
         """Migrate memories from legacy JSON format to ChromaDB"""
@@ -197,7 +281,7 @@ class ChromaMemoryManager:
                 logger.info("No legacy memories to migrate")
                 return
                 
-            logger.info(f"Migrating {len(legacy_memory)} memories to ChromaDB")
+            logger.info(f"Migrating {len(legacy_memory)} memories to ChromaDB global collection")
             
             # Prepare batches for migration
             documents = []
@@ -212,7 +296,8 @@ class ChromaMemoryManager:
                         "topic": topic,
                         "detail": memory_data["detail"],
                         "source": memory_data.get("source", "Unknown"),
-                        "timestamp": memory_data.get("timestamp", datetime.datetime.now().isoformat())
+                        "timestamp": memory_data.get("timestamp", datetime.datetime.now().isoformat()),
+                        "guild_id": "global"  # Mark as global memory
                     }
                 else:
                     # Old format
@@ -221,7 +306,8 @@ class ChromaMemoryManager:
                         "topic": topic,
                         "detail": str(memory_data),
                         "source": "Unknown",
-                        "timestamp": datetime.datetime.now().isoformat()
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "guild_id": "global"  # Mark as global memory
                     }
                 
                 memory_id = str(uuid.uuid4())
@@ -243,7 +329,7 @@ class ChromaMemoryManager:
                             metadatas=batch_meta,
                             ids=batch_ids
                         )
-                        logger.info(f"Added batch of {len(batch_docs)} memories to ChromaDB")
+                        logger.info(f"Added batch of {len(batch_docs)} memories to global ChromaDB collection")
                     except Exception as e:
                         logger.error(f"Error adding memory batch: {e}")
             
@@ -255,9 +341,15 @@ class ChromaMemoryManager:
         except Exception as e:
             logger.error(f"Error migrating legacy memories: {e}")
             
-    def add_memory(self, topic: str, detail: str, source: str) -> bool:
-        """Add a memory with attribution to ChromaDB"""
+    def add_memory(self, topic: str, detail: str, source: str, guild_id: str = "global") -> bool:
+        """Add a memory with attribution to ChromaDB for a specific guild"""
         try:
+            # Get the collection for this guild
+            collection = self.get_collection_for_guild(guild_id)
+            
+            # Check if we need to enforce memory limits before adding
+            self._enforce_memory_limit(collection, guild_id)
+            
             # Create a document that combines topic and detail for better semantic search
             document = f"{topic}: {detail}"
             
@@ -266,6 +358,7 @@ class ChromaMemoryManager:
                 "topic": topic,
                 "detail": detail,
                 "source": source,
+                "guild_id": guild_id,  # Store guild ID in metadata
                 "timestamp": datetime.datetime.now().isoformat()
             }
             
@@ -273,23 +366,26 @@ class ChromaMemoryManager:
             memory_id = str(uuid.uuid4())
             
             # Add to ChromaDB
-            self.collection.add(
+            collection.add(
                 documents=[document],
                 metadatas=[metadata],
                 ids=[memory_id]
             )
             
-            logger.info(f"Added memory from {source}: {topic}: {detail}")
+            logger.info(f"Added memory for guild {guild_id} from {source}: {topic}: {detail}")
             return True
         except Exception as e:
             logger.error(f"Error adding memory to ChromaDB: {e}")
             return False
         
-    def update_memory(self, topic: str, new_detail: str, source: str) -> bool:
-        """Update an existing memory by topic"""
+    def update_memory(self, topic: str, new_detail: str, source: str, guild_id: str = "global") -> bool:
+        """Update an existing memory by topic for a specific guild"""
         try:
+            # Get the collection for this guild
+            collection = self.get_collection_for_guild(guild_id)
+            
             # Query for memories with this topic
-            results = self.collection.get(
+            results = collection.get(
                 where={"topic": topic}
             )
             
@@ -305,71 +401,79 @@ class ChromaMemoryManager:
                     "topic": topic,
                     "detail": new_detail,
                     "source": source,
+                    "guild_id": guild_id,
                     "timestamp": datetime.datetime.now().isoformat()
                 }
                 
                 # Update in ChromaDB
-                self.collection.update(
+                collection.update(
                     ids=[memory_id],
                     documents=[document],
                     metadatas=[metadata]
                 )
                 
-                logger.info(f"Updated memory: {topic}: {new_detail}")
+                logger.info(f"Updated memory for guild {guild_id}: {topic}: {new_detail}")
                 return True
             else:
-                logger.info(f"No memory found with topic: {topic}")
+                logger.info(f"No memory found with topic: {topic} in guild {guild_id}")
                 return False
         except Exception as e:
             logger.error(f"Error updating memory: {e}")
             return False
             
-    def remove_memory(self, topic: str) -> bool:
-        """Remove memories by topic"""
+    def remove_memory(self, topic: str, guild_id: str = "global") -> bool:
+        """Remove memories by topic from a specific guild"""
         try:
+            # Get the collection for this guild
+            collection = self.get_collection_for_guild(guild_id)
+            
             # Query for memories with this topic
-            results = self.collection.get(
+            results = collection.get(
                 where={"topic": topic}
             )
             
             if results and results['ids'] and len(results['ids']) > 0:
                 # Delete the found memories
-                self.collection.delete(
+                collection.delete(
                     ids=results['ids']
                 )
-                logger.info(f"Removed memory with topic: {topic}")
+                logger.info(f"Removed memory with topic: {topic} from guild {guild_id}")
                 return True
             else:
-                logger.info(f"No memory found with topic: {topic}")
+                logger.info(f"No memory found with topic: {topic} in guild {guild_id}")
                 return False
         except Exception as e:
             logger.error(f"Error removing memory: {e}")
             return False
             
-    def clear_memories(self) -> None:
-        """Clear all memories for this bot"""
+    def clear_memories(self, guild_id: str = "global") -> None:
+        """Clear all memories for this bot in a specific guild"""
         try:
+            # Get the collection for this guild
+            collection = self.get_collection_for_guild(guild_id)
+            
             # Get all memory IDs
-            results = self.collection.get()
+            results = collection.get()
             
             if results and results['ids'] and len(results['ids']) > 0:
                 # Delete all memories
-                self.collection.delete(
+                collection.delete(
                     ids=results['ids']
                 )
-                logger.info(f"Cleared all memories ({len(results['ids'])} entries) for {self.bot.character_name}")
+                logger.info(f"Cleared all memories ({len(results['ids'])} entries) for {self.bot.character_name} in guild {guild_id}")
             else:
-                logger.info(f"No memories to clear for {self.bot.character_name}")
+                logger.info(f"No memories to clear for {self.bot.character_name} in guild {guild_id}")
                 
         except Exception as e:
             logger.error(f"Error clearing memories: {e}")
             
-    def search_memory(self, query: str, limit: int = 5) -> List[str]:
+    def search_memory(self, query: str, guild_id: str = "global", limit: int = 5) -> List[str]:
         """
-        Search for memories relevant to the provided query using vector similarity.
+        Search for memories relevant to the provided query using vector similarity in a specific guild.
         
         Args:
             query: The search query
+            guild_id: The ID of the guild to search in
             limit: Maximum number of results to return
             
         Returns:
@@ -379,9 +483,12 @@ class ChromaMemoryManager:
             return []
             
         try:
+            # Get the collection for this guild
+            collection = self.get_collection_for_guild(guild_id)
+            
             # Search using query_text for semantic similarity
-            print(f"Searching for memories related to: {query}")
-            results = self.collection.query(
+            logger.info(f"Searching for memories related to: {query} in guild {guild_id}")
+            results = collection.query(
                 query_texts=[query],
                 n_results=min(limit, 10)  # Cap at 10 for safety
             )
@@ -401,7 +508,7 @@ class ChromaMemoryManager:
             # Log what we found
             if memory_matches:
                 topics = [m.split(':')[0] for m in memory_matches]
-                logger.info(f"Found {len(memory_matches)} relevant memories for '{query}': {topics}")
+                logger.info(f"Found {len(memory_matches)} relevant memories for '{query}' in guild {guild_id}: {topics}")
                 
             return memory_matches
             
@@ -409,8 +516,8 @@ class ChromaMemoryManager:
             logger.error(f"Error searching memories: {e}")
             return []
             
-    async def extract_memories_from_text(self, text_content: str) -> int:
-        """Extract and store important information from any text as memories"""
+    async def extract_memories_from_text(self, text_content: str, guild_id: str = "global") -> int:
+        """Extract and store important information from any text as memories for a specific guild"""
         if not hasattr(self.bot, 'ai_client') or not self.bot.ai_client or not hasattr(self.bot, 'chat_model') or not self.bot.chat_model:
             logger.warning("AI client or chat model not available for memory extraction")
             return 0
@@ -471,8 +578,8 @@ class ChromaMemoryManager:
                         importance = memory.get("importance", 5)
                         
                         if topic and detail and importance >= 3:  # Only store memories with importance >= 3
-                            # Store memory with system attribution
-                            success = self.add_memory(topic, detail, "Sleep Analysis")
+                            # Store memory with system attribution for the specific guild
+                            success = self.add_memory(topic, detail, "Sleep Analysis", guild_id)
                             if success:
                                 memories_created += 1
                     
@@ -489,8 +596,8 @@ class ChromaMemoryManager:
             logger.error(f"Error in sleep memory extraction: {e}")
             return 0
             
-    async def update_memory_from_conversation(self, user_name: str, user_message: str, bot_response: str) -> None:
-        """Extract and store important information from conversations as memories with user attribution"""
+    async def update_memory_from_conversation(self, user_name: str, user_message: str, bot_response: str, guild_id: str = "global") -> None:
+        """Extract and store important information from conversations as memories with user attribution for a specific guild"""
         if not hasattr(self.bot, 'ai_client') or not self.bot.ai_client or not hasattr(self.bot, 'chat_model') or not self.bot.chat_model:
             logger.warning("AI client or chat model not available for memory update")
             return
@@ -550,7 +657,7 @@ class ChromaMemoryManager:
                     # Update memory with extracted information and user attribution
                     for topic, detail in memory_data.items():
                         if topic and detail and len(detail) > 3:  # Make sure they're not empty and meaningful
-                            self.add_memory(topic, detail, user_name)
+                            self.add_memory(topic, detail, user_name, guild_id)
                     
                 else:
                     logger.info("No memory-worthy information found in conversation")
@@ -561,14 +668,21 @@ class ChromaMemoryManager:
         except Exception as e:
             logger.error(f"Error updating memory from conversation: {e}")
 
-    def format_memories_for_display(self) -> str:
-        """Format memories for display in Discord"""
-        memory_display = "**Long-term Memory:**\n"
+    def format_memories_for_display(self, guild_id: str = "global") -> str:
+        """Format memories for display in Discord for a specific guild"""
+        memory_display = f"**Long-term Memory for {self.bot.character_name}**"
+        if guild_id != "global":
+            memory_display += f" **in this server (max {MAX_MEMORIES_PER_SERVER} memories):**\n"
+        else:
+            memory_display += ":\n"
         
         try:
+            # Get the collection for this guild
+            collection = self.get_collection_for_guild(guild_id)
+            
             # Get all memories from ChromaDB
             try:
-                results = self.collection.get()
+                results = collection.get()
             except Exception as e:
                 logger.error(f"Error getting memories from collection: {e}")
                 return memory_display + "Error: Could not retrieve memories from database."
@@ -600,6 +714,13 @@ class ChromaMemoryManager:
             # Sort by recency (newest first) then alphabetically by topic
             memories.sort(key=lambda x: (-x[3], x[0]))
             
+            # Display memory count
+            memory_display += f"{len(memories)} memories stored. "
+            if guild_id != "global" and len(memories) >= MAX_MEMORIES_PER_SERVER:
+                memory_display += f"**Limit reached ({MAX_MEMORIES_PER_SERVER})**. Oldest memories will be replaced.\n\n"
+            else:
+                memory_display += "\n\n"
+                
             # Format each memory
             for topic, detail, source, _ in memories:
                 memory_display += f"- **{topic}**: {detail} (from {source})\n"

@@ -972,6 +972,8 @@ class OpenShape(commands.Bot):
 
         if should_respond:
             async with message.channel.typing():
+                guild_id = str(message.guild.id) if message.guild else "global"
+                
                 # Remove mentions from the message
                 clean_content = re.sub(r"<@!?(\d+)>", "", message.content).strip()
 
@@ -996,7 +998,7 @@ class OpenShape(commands.Bot):
                 relevant_lore = self.lorebook_manager.get_relevant_entries(clean_content)
                 
                 # Get relevant memories using our new search function
-                relevant_memories = self.memory_manager.search_memory(clean_content)
+                relevant_memories = self.memory_manager.search_memory(clean_content, guild_id)
                 
                 # Combine lore and memories into single relevant_info list
                 relevant_info = []
@@ -1036,8 +1038,8 @@ class OpenShape(commands.Bot):
                     channel_history = channel_history[-8:]
 
                 # Update memory if there's something important to remember
-                await self.update_memory_from_conversation(
-                    message.author.display_name, clean_content, response
+                await self.memory_manager.update_memory_from_conversation(
+                    message.author.display_name, clean_content, response, guild_id
                 )
 
                 # Save conversation periodically
