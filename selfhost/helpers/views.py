@@ -171,7 +171,7 @@ class SettingsView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         self.bot.add_character_name = not self.bot.add_character_name
-        self.bot._save_config()
+        self.bot.config_manager.save_config()
         await interaction.response.send_message(
             f"Character name in responses: {'Enabled' if self.bot.add_character_name else 'Disabled'}",
             ephemeral=True,
@@ -184,7 +184,7 @@ class SettingsView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         self.bot.reply_to_name = not self.bot.reply_to_name
-        self.bot._save_config()
+        self.bot.config_manager.save_config()
         await interaction.response.send_message(
             f"Reply when name is called: {'Enabled' if self.bot.reply_to_name else 'Disabled'}",
             ephemeral=True,
@@ -197,7 +197,7 @@ class SettingsView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         self.bot.always_reply_mentions = not self.bot.always_reply_mentions
-        self.bot._save_config()
+        self.bot.config_manager.save_config()
         await interaction.response.send_message(
             f"Reply to @mentions: {'Enabled' if self.bot.always_reply_mentions else 'Disabled'}",
             ephemeral=True,

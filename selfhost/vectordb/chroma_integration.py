@@ -114,15 +114,68 @@ class MemoryCommand:
     async def execute(bot, interaction):
         """Execute the memory command with ChromaDB integration"""
         try:
-            # Only allow the owner to manage memories
-            if interaction.user.id != bot.owner_id:
-                memory_display = bot.format_memories_for_display()
-                await interaction.response.send_message(memory_display, ephemeral=True)
-                return
 
             # Import necessary Discord UI classes
             import discord
             
+            # Define the pagination view class
+            class PaginationView(discord.ui.View):
+                def __init__(self, chunks):
+                    super().__init__(timeout=180)  # 3 minute timeout
+                    self.chunks = chunks
+                    self.current_page = 0
+                    
+                    # Set initial button states
+                    self.update_button_states()
+                    
+                def update_button_states(self):
+                    # Disable previous button on first page
+                    self.children[0].disabled = (self.current_page == 0)
+                    # Disable next button on last page
+                    self.children[1].disabled = (self.current_page == len(self.chunks) - 1)
+                    
+                @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary)
+                async def previous_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
+                    self.current_page = max(0, self.current_page - 1)
+                    self.update_button_states()
+                    
+                    await button_interaction.response.edit_message(
+                        content=f"{self.chunks[self.current_page]}\n\n(Page {self.current_page + 1}/{len(self.chunks)})",
+                        view=self
+                    )
+                    
+                @discord.ui.button(label="Next ➡️", style=discord.ButtonStyle.secondary)
+                async def next_button(self, button_interaction: discord.Interaction, button: discord.ui.Button):
+                    self.current_page = min(len(self.chunks) - 1, self.current_page + 1)
+                    self.update_button_states()
+                    
+                    await button_interaction.response.edit_message(
+                        content=f"{self.chunks[self.current_page]}\n\n(Page {self.current_page + 1}/{len(self.chunks)})",
+                        view=self
+                    )
+
+            # Only allow the owner to manage memories
+            if interaction.user.id != bot.owner_id:
+                memory_display = bot.format_memories_for_display()
+                
+                # If content fits in one message, send it directly
+                if len(memory_display) <= 2000:
+                    await interaction.response.send_message(memory_display, ephemeral=True)
+                else:
+                    await interaction.response.defer(ephemeral=True)
+                    
+                    # Split memory display into chunks of 1900 characters
+                    chunks = [memory_display[i:i+1900] for i in range(0, len(memory_display), 1900)]
+                    
+                    # Create pagination view and send first page
+                    view = PaginationView(chunks)
+                    await interaction.followup.send(
+                        f"{chunks[0]}\n\n(Page 1/{len(chunks)})", 
+                        view=view, 
+                        ephemeral=True
+                    )
+                
+                return
             class MemoryManagementView(discord.ui.View):
                 def __init__(self, bot_instance):
                     super().__init__()
@@ -373,11 +426,92 @@ class MemoryCommand:
                                 ephemeral=True
                             )
                         
-            # Display memories with management view
+
+            # Display memories with management view for bot owner
             view = MemoryManagementView(bot)
             memory_display = bot.format_memories_for_display()
-            await interaction.response.send_message(memory_display, view=view, ephemeral=True)
             
+            if len(memory_display) <= 2000:
+                await interaction.response.send_message(memory_display, view=view, ephemeral=True)
+            else:
+                # Use pagination for larger content
+                await interaction.response.defer(ephemeral=True)
+                
+                # Split memory display into chunks of 1900 characters
+                chunks = [memory_display[i:i+1900] for i in range(0, len(memory_display), 1900)]
+                
+                # Create combined view with pagination and memory management
+                class CombinedView(PaginationView):
+                    def __init__(self, chunks, bot_instance):
+                        super().__init__(chunks)
+                        self.bot = bot_instance
+                        
+                        # Add memory management buttons
+                        add_button = discord.ui.Button(label="Add Memory", style=discord.ButtonStyle.primary, row=1)
+                        edit_button = discord.ui.Button(label="Edit Memory", style=discord.ButtonStyle.secondary, row=1)
+                        clear_button = discord.ui.Button(label="Clear All Memory", style=discord.ButtonStyle.danger, row=1)
+                        
+                        # Callbacks for the management buttons
+                        async def add_callback(button_interaction):
+                            modal = MemoryAddModal(self.bot)
+                            await button_interaction.response.send_modal(modal)
+                            
+                        async def edit_callback(button_interaction):
+                            try:
+                                results = self.bot.memory_manager.collection.get()
+                                
+                                if not results or not results['metadatas'] or len(results['metadatas']) == 0:
+                                    await button_interaction.response.send_message("No memories available to edit.", ephemeral=True)
+                                    return
+                                    
+                                modal = MemorySelectModal(self.bot, results)
+                                await button_interaction.response.send_modal(modal)
+                                
+                            except Exception as e:
+                                logger.error(f"Error fetching memories for edit: {e}")
+                                await button_interaction.response.send_message("Failed to retrieve memories for editing.", ephemeral=True)
+                        
+                        async def clear_callback(button_interaction):
+                            confirm_view = discord.ui.View()
+                            
+                            confirm_button = discord.ui.Button(label="Yes, Clear All Memories", style=discord.ButtonStyle.danger)
+                            cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+                            
+                            async def confirm_cb(confirm_interaction):
+                                self.bot.clear_memories()
+                                await confirm_interaction.response.send_message("All memories cleared!", ephemeral=True)
+                                
+                            async def cancel_cb(cancel_interaction):
+                                await cancel_interaction.response.send_message("Memory clear canceled", ephemeral=True)
+                                
+                            confirm_button.callback = confirm_cb
+                            cancel_button.callback = cancel_cb
+                            
+                            confirm_view.add_item(confirm_button)
+                            confirm_view.add_item(cancel_button)
+                            
+                            await button_interaction.response.send_message(
+                                "⚠️ **Warning**: This will delete ALL memories for this character.\nAre you sure?", 
+                                view=confirm_view, 
+                                ephemeral=True
+                            )
+                        
+                        add_button.callback = add_callback
+                        edit_button.callback = edit_callback
+                        clear_button.callback = clear_callback
+                        
+                        self.add_item(add_button)
+                        self.add_item(edit_button)
+                        self.add_item(clear_button)
+                
+                # Create combined view and send first page
+                combined_view = CombinedView(chunks, bot)
+                await interaction.followup.send(
+                    f"{chunks[0]}\n\n(Page 1/{len(chunks)})",
+                    view=combined_view,
+                    ephemeral=True
+                )
+                
         except Exception as e:
             import logging
             logger = logging.getLogger("openshape.chroma_integration")
