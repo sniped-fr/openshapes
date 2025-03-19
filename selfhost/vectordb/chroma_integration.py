@@ -114,6 +114,7 @@ class MemoryCommand:
     async def execute(bot, interaction):
         """Execute the memory command with ChromaDB integration"""
         try:
+
             # Import necessary Discord UI classes
             import discord
             
@@ -175,7 +176,6 @@ class MemoryCommand:
                     )
                 
                 return
-
             class MemoryManagementView(discord.ui.View):
                 def __init__(self, bot_instance):
                     super().__init__()
@@ -426,6 +426,7 @@ class MemoryCommand:
                                 ephemeral=True
                             )
                         
+
             # Display memories with management view for bot owner
             view = MemoryManagementView(bot)
             memory_display = bot.format_memories_for_display()
