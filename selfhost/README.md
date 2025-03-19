@@ -116,7 +116,7 @@ Store your `shapes.json` and `brain.json` files in a folder where you'll run the
 1. Open a command prompt or terminal in the folder containing your files
 2. Run the parser with:
    ```bash
-   python parser.py
+   python3 parser.py
    ```
 3. When prompted, enter the paths to your files:
    - For `shapes.json`, either enter the full path or just press Enter if it's in the current directory
@@ -178,7 +178,7 @@ Ensure these files are in place before continuing.
 From the `openshapes/selfhost` directory, run:
 
 ```bash
-python bot.py
+python3 bot.py
 ```
 
 Your OpenShape should now be online in your Discord server!
