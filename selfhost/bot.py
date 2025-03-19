@@ -1314,6 +1314,7 @@ class OpenShape(commands.Bot):
         parts = clean_content.split(" ", 1)
         command = parts[0].lower() if parts else ""
         args = parts[1] if len(parts) > 1 else ""
+        guild_id = str(message.guild.id) if message.guild else "global"
     
         if command == "regex":
             if not args:
@@ -1428,12 +1429,12 @@ class OpenShape(commands.Bot):
                 
         elif command == "memory" or command == "wack":
             if args.lower() == "show":
-                memory_display = self.format_memories_for_display()
+                memory_display = self.format_memories_for_display(guild_id)
                 await message.reply(memory_display)
             elif args.lower().startswith("search ") and len(parts) > 2:
                 # New command to search memories based on keywords
                 search_term = parts[2]
-                relevant_memories = self.memory_manager.search_memory(search_term)
+                relevant_memories = self.memory_manager.search_memory(search_term, guild_id)
                 
                 if relevant_memories:
                     memory_display = f"**Memories matching '{search_term}':**\n"
@@ -1447,7 +1448,7 @@ class OpenShape(commands.Bot):
                 if len(mem_parts) == 2:
                     topic, details = mem_parts
                     # Store with the command issuer as source
-                    self.memory_manager.add_memory(topic.strip(), details.strip(), message.author.display_name)
+                    self.memory_manager.add_memory(topic.strip(), details.strip(), message.author.display_name, guild_id)
                     await message.reply(f"Added memory: {topic.strip()} (from {message.author.display_name})")
                 else:
                     await message.reply(
@@ -1456,12 +1457,12 @@ class OpenShape(commands.Bot):
             elif args.lower().startswith("remove "):
                 # Remove memory
                 topic = args[7:].strip()
-                if self.memory_manager.remove_memory(topic):
+                if self.memory_manager.remove_memory(topic, guild_id):
                     await message.reply(f"Removed memory: {topic}")
                 else:
                     await message.reply(f"Memory topic '{topic}' not found.")
             elif args.lower() == "clear" or command == "wack":
-                self.memory_manager.clear_memories()
+                self.memory_manager.clear_memories(guild_id)
                 await message.reply("All memories cleared.")
         elif command == "lore":
             subparts = args.split(" ", 1)
