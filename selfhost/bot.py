@@ -10,15 +10,15 @@ from typing import Dict, List, Optional, Any
 from openai import AsyncOpenAI
 import asyncio
 import aiohttp
-import io
-
+from discord.ext import tasks
+from helpers.regex_extension import *
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("simple_character_bot")
+logger = logging.getLogger("openshape")
 
 
-class SimpleCharacterBot(commands.Bot):
+class OpenShape(commands.Bot):
     def __init__(self, config_path: str, *args, **kwargs):
         # Load configuration
         with open(config_path, "r", encoding="utf-8") as f:
@@ -45,10 +45,19 @@ class SimpleCharacterBot(commands.Bot):
         self.character_description = self.character_config.get(
             "character_description", ""
         )
-        self.character_personality = self.character_config.get(
-            "character_personality", ""
-        )
+        self.personality_catchphrases = self.character_config.get("personality_catchphrases")
+        self.personality_age = self.character_config.get("personality_age")
+        self.personality_likes = self.character_config.get("personality_likes")
+        self.personality_dislikes = self.character_config.get("personality_dislikes")
+        self.personality_goals = self.character_config.get("personality_goals")
+        self.personality_traits = self.character_config.get("personality_traits")
+        self.personality_physical_traits = self.character_config.get("personality_physical_traits")
+        self.personality_tone = self.character_config.get("personality_tone")
+        self.personality_history = self.character_config.get("personality_history")
+        self.personality_conversational_goals = self.character_config.get("personality_conversational_goals")
+        self.personality_conversational_examples = self.character_config.get("personality_conversational_examples")
         self.character_scenario = self.character_config.get("character_scenario", "")
+        
 
         # API configuration for AI integration
         self.api_settings = self.character_config.get("api_settings", {})
@@ -101,18 +110,37 @@ class SimpleCharacterBot(commands.Bot):
         # Moderation settings
         self.blacklisted_users = self.character_config.get("blacklisted_users", [])
         self.blacklisted_roles = self.character_config.get("blacklisted_roles", [])
+        self.conversation_timeout = self.character_config.get("conversation_timeout", 30)  # Default 30 minutes
+        
+        # Start the cleanup task
+       
 
     def _load_storage(self):
-        """Load memory and lorebook from files"""
+        """Load memory and lorebook from files with updated memory structure"""
         # Load memory
         if os.path.exists(self.memory_path):
             with open(self.memory_path, "r", encoding="utf-8") as f:
-                self.long_term_memory = json.load(f)
+                loaded_memory = json.load(f)
+                
+                # Check if we need to migrate old memory format
+                if loaded_memory and isinstance(next(iter(loaded_memory.values())), str):
+                    # Old format detected - migrate to new format
+                    migrated_memory = {}
+                    for topic, detail in loaded_memory.items():
+                        migrated_memory[topic] = {
+                            "detail": detail,
+                            "source": "Unknown",  # Default source for migrated memories
+                            "timestamp": datetime.datetime.now().isoformat()
+                        }
+                    self.long_term_memory = migrated_memory
+                else:
+                    # Already in new format or empty
+                    self.long_term_memory = loaded_memory
         else:
             self.long_term_memory = {}
             self._save_memory()
 
-        # Load lorebook
+        # Load lorebook (unchanged)
         if os.path.exists(self.lorebook_path):
             with open(self.lorebook_path, "r", encoding="utf-8") as f:
                 self.lorebook_entries = json.load(f)
@@ -138,7 +166,17 @@ class SimpleCharacterBot(commands.Bot):
                 "character_name": self.character_name,
                 "system_prompt": self.system_prompt,
                 "character_description": self.character_description,
-                "character_personality": self.character_personality,
+                "personality_catchphrases": self.personality_catchphrases,
+                "personality_age": self.personality_age,
+                "personality_likes": self.personality_likes,
+                "personality_dislikes": self.personality_dislikes,
+                "personality_goals": self.personality_goals,
+                "personality_traits": self.personality_traits,
+                "personality_physical_traits": self.personality_physical_traits,
+                "personality_tone": self.personality_tone,
+                "personality_history": self.personality_history,
+                "personality_conversational_goals": self.personality_conversational_goals,
+                "personality_conversational_examples": self.personality_conversational_examples,
                 "character_scenario": self.character_scenario,
                 "add_character_name": self.add_character_name,
                 "reply_to_name": self.reply_to_name,
@@ -162,8 +200,44 @@ class SimpleCharacterBot(commands.Bot):
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(conversation, f, indent=2)
 
+    # Add a task loop to clean up old conversations
+    @tasks.loop(minutes=5)  # Check every 5 minutes
+    async def conversation_cleanup(self):
+        """Task to clean up old conversations that haven't been active recently"""
+        if not hasattr(self, "channel_conversations"):
+            return
+        
+        current_time = datetime.datetime.now()
+        channels_to_cleanup = []
+        
+        # Find channels with inactive conversations
+        for channel_id, conversation in self.channel_conversations.items():
+            if not conversation:
+                continue
+                
+            # Get timestamp from last message
+            try:
+                last_message = conversation[-1]
+                last_timestamp = last_message.get("timestamp")
+                
+                if last_timestamp:
+                    last_time = datetime.datetime.fromisoformat(last_timestamp)
+                    time_diff = current_time - last_time
+                    
+                    # If conversation is older than timeout, mark for cleanup
+                    if time_diff.total_seconds() > (self.conversation_timeout * 60):
+                        channels_to_cleanup.append(channel_id)
+                        logger.info(f"Cleaning up conversation in channel {channel_id} - inactive for {time_diff.total_seconds()/60:.1f} minutes")
+            except (ValueError, KeyError, IndexError) as e:
+                logger.error(f"Error processing conversation timestamps: {e}")
+        
+        # Clean up the inactive conversations
+        for channel_id in channels_to_cleanup:
+            del self.channel_conversations[channel_id]
+
     async def setup_hook(self):
         """Register slash commands when the bot is starting up"""
+        self.conversation_cleanup.start()
         # Basic commands
         self.tree.add_command(
             app_commands.Command(
@@ -222,7 +296,47 @@ class SimpleCharacterBot(commands.Bot):
                 callback=self.settings_command,
             )
         )
-
+        self.tree.add_command(
+            app_commands.Command(
+                name="edit_personality_traits",
+                description="Edit specific personality traits for the character",
+                callback=self.edit_personality_traits_command,
+            ),
+        )
+        
+        self.tree.add_command(
+            app_commands.Command(
+                name="edit_backstory",
+                description="Edit the character's history and background",
+                callback=self.edit_backstory_command,
+            ),
+        )
+        
+        self.tree.add_command(
+            app_commands.Command(
+                name="edit_preferences",
+                description="Edit what the character likes and dislikes",
+                callback=self.edit_preferences_command,
+            ),
+        )
+        # 
+        self.tree.add_command(
+            app_commands.Command(
+                name="sleep_command",
+                description="Generate a long term memory.",
+                callback=self.sleep_command,
+            ),
+        )
+        
+        # Regex command
+        self.tree.add_command(
+            app_commands.Command(
+                name="regex",
+                description="Manage RegEx pattern scripts for text manipulation",
+                callback=self.regex_command,
+            )
+        )
+        
         # Configuration commands (owner only)
         for guild_id in self.character_config.get("allowed_guilds", []):
             guild = discord.Object(id=guild_id)
@@ -245,14 +359,6 @@ class SimpleCharacterBot(commands.Bot):
                 guild=guild,
             )
 
-            self.tree.add_command(
-                app_commands.Command(
-                    name="edit_personality",
-                    description="Edit the character's personality",
-                    callback=self.edit_personality_command,
-                ),
-                guild=guild,
-            )
 
             self.tree.add_command(
                 app_commands.Command(
@@ -280,24 +386,45 @@ class SimpleCharacterBot(commands.Bot):
                 ),
                 guild=guild,
             )
+            
+        self.regex_manager = RegexManager(self)
 
     async def character_info_command(self, interaction: discord.Interaction):
         """Public command to show character information"""
         embed = discord.Embed(title=f"{self.character_name} Info", color=0x3498DB)
+        
+        # Basic info (existing)
         embed.add_field(
             name="Description",
             value=self.character_description[:1024] or "No description set",
-            inline=False,
-        )
-        embed.add_field(
-            name="Personality",
-            value=self.character_personality[:1024] or "No personality set",
             inline=False,
         )
         if self.character_scenario:
             embed.add_field(
                 name="Scenario", value=self.character_scenario[:1024], inline=False
             )
+        
+        # Add new personality details if available
+        if self.personality_age:
+            embed.add_field(name="Age", value=self.personality_age, inline=True)
+        
+        if self.personality_traits:
+            embed.add_field(name="Traits", value=self.personality_traits, inline=True)
+            
+        if self.personality_likes:
+            embed.add_field(name="Likes", value=self.personality_likes, inline=True)
+            
+        if self.personality_dislikes:
+            embed.add_field(name="Dislikes", value=self.personality_dislikes, inline=True)
+        
+        if self.personality_tone:
+            embed.add_field(name="Tone", value=self.personality_tone, inline=True)
+        
+        # Add a field for history if it exists
+        if self.personality_history:
+            # Truncate if too long
+            history = self.personality_history[:1024] + ("..." if len(self.personality_history) > 1024 else "")
+            embed.add_field(name="History", value=history, inline=False)
 
         await interaction.response.send_message(embed=embed)
 
@@ -318,16 +445,340 @@ class SimpleCharacterBot(commands.Bot):
             f"{self.character_name} will now only respond when mentioned or called by name."
         )
 
+    async def edit_personality_traits_command(self, interaction: discord.Interaction):
+        """Edit the character's specific personality traits"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+
+        # Create dropdown for selecting which trait to edit
+        options = [
+            discord.SelectOption(label="Catchphrases", value="catchphrases"),
+            discord.SelectOption(label="Age", value="age"),
+            discord.SelectOption(label="Traits", value="traits"),
+            discord.SelectOption(label="Physical Traits", value="physical"),
+            discord.SelectOption(label="Tone", value="tone"),
+            discord.SelectOption(label="Conversational Style", value="style"),
+        ]
+
+        select = discord.ui.Select(placeholder="Select trait to edit", options=options)
+
+        async def select_callback(select_interaction):
+            trait = select.values[0]
+            
+            current_values = {
+                "catchphrases": self.personality_catchphrases,
+                "age": self.personality_age,
+                "traits": self.personality_traits,
+                "physical": self.personality_physical_traits,
+                "tone": self.personality_tone,
+                "style": self.personality_conversational_examples
+            }
+            
+            # Create modal for editing
+            modal = TextEditModal(
+                title=f"Edit {trait.title()}", 
+                current_text=current_values[trait] or ""
+            )
+
+            async def on_submit(modal_interaction):
+                # Update the appropriate field
+                if trait == "catchphrases":
+                    self.personality_catchphrases = modal.text_input.value
+                elif trait == "age":
+                    self.personality_age = modal.text_input.value
+                elif trait == "traits":
+                    self.personality_traits = modal.text_input.value
+                elif trait == "physical":
+                    self.personality_physical_traits = modal.text_input.value
+                elif trait == "tone":
+                    self.personality_tone = modal.text_input.value
+                elif trait == "style":
+                    self.personality_conversational_examples = modal.text_input.value
+                    
+                self._save_config()
+                await modal_interaction.response.send_message(
+                    f"Character {trait} updated!", ephemeral=True
+                )
+
+            modal.on_submit = on_submit
+            await select_interaction.response.send_modal(modal)
+
+        select.callback = select_callback
+        view = discord.ui.View()
+        view.add_item(select)
+
+        await interaction.response.send_message(
+            "Select a personality trait to edit:", view=view, ephemeral=True
+        )
+
+    async def edit_backstory_command(self, interaction: discord.Interaction):
+        """Edit the character's history"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+
+        # Create modal for editing
+        modal = TextEditModal(
+            title="Edit Character History", 
+            current_text=self.personality_history or ""
+        )
+
+        async def on_submit(modal_interaction):
+            self.personality_history = modal.text_input.value
+            self._save_config()
+            await modal_interaction.response.send_message(
+                "Character history updated!", ephemeral=True
+            )
+
+        modal.on_submit = on_submit
+        await interaction.response.send_modal(modal)
+
+    async def edit_preferences_command(self, interaction: discord.Interaction):
+        """Edit what the character likes and dislikes"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+
+        # Create dropdown to select likes or dislikes
+        options = [
+            discord.SelectOption(label="Likes", value="likes"),
+            discord.SelectOption(label="Dislikes", value="dislikes"),
+            discord.SelectOption(label="Goals", value="goals"),
+        ]
+
+        select = discord.ui.Select(placeholder="Select preference to edit", options=options)
+
+        async def select_callback(select_interaction):
+            pref = select.values[0]
+            
+            current_values = {
+                "likes": self.personality_likes,
+                "dislikes": self.personality_dislikes,
+                "goals": self.personality_goals
+            }
+            
+            # Create modal for editing
+            modal = TextEditModal(
+                title=f"Edit {pref.title()}", 
+                current_text=current_values[pref] or ""
+            )
+
+            async def on_submit(modal_interaction):
+                # Update the appropriate field
+                if pref == "likes":
+                    self.personality_likes = modal.text_input.value
+                elif pref == "dislikes":
+                    self.personality_dislikes = modal.text_input.value
+                elif pref == "goals":
+                    self.personality_goals = modal.text_input.value
+                    
+                self._save_config()
+                await modal_interaction.response.send_message(
+                    f"Character {pref} updated!", ephemeral=True
+                )
+
+        select.callback = select_callback
+        view = discord.ui.View()
+        view.add_item(select)
+
+        await interaction.response.send_message(
+            "Select preferences to edit:", view=view, ephemeral=True
+        )
+        
+    async def sleep_command(self, interaction: discord.Interaction):
+        """Process recent messages to extract and store memories before going to sleep"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+        
+        await interaction.response.defer(thinking=True)
+        
+        # First, acknowledge the command
+        await interaction.followup.send(f"{self.character_name} is analyzing recent conversations and going to sleep...")
+        
+        try:
+            # Fetch recent messages from the channel (up to 30)
+            recent_messages = []
+            async for message in interaction.channel.history(limit=30):
+                # Skip system messages and bot's own messages
+                if message.author.bot and message.author.id != self.user.id:
+                    continue
+                
+                # Add message to our list
+                recent_messages.append({
+                    "author": message.author.display_name,
+                    "content": message.content,
+                    "id": message.id,
+                    "timestamp": message.created_at.isoformat()
+                })
+            
+            # Sort messages by timestamp (oldest first)
+            recent_messages.sort(key=lambda m: m["timestamp"])
+            
+            # We don't want to process all messages individually as that would be inefficient
+            # Instead, we'll batch them in small conversations
+            
+            # First, let's group messages by author over short time spans
+            batched_conversations = []
+            current_batch = []
+            last_author = None
+            
+            for msg in recent_messages:
+                # If this is a new author or the batch is getting too big, start a new batch
+                if last_author != msg["author"] or len(current_batch) >= 5:
+                    if current_batch:
+                        batched_conversations.append(current_batch)
+                    current_batch = [msg]
+                else:
+                    current_batch.append(msg)
+                
+                last_author = msg["author"]
+            
+            # Add the final batch if it exists
+            if current_batch:
+                batched_conversations.append(current_batch)
+            
+            # Now process each batch to extract memories
+            memories_created = 0
+            
+            for batch in batched_conversations:
+                # Skip if this is just the bot talking
+                if all(msg["author"] == self.character_name for msg in batch):
+                    continue
+                
+                # Construct a conversation to analyze
+                conversation_content = ""
+                for msg in batch:
+                    conversation_content += f"{msg['author']}: {msg['content']}\n"
+                
+                # Check if this conversation has substance (more than just a greeting or short message)
+                if len(conversation_content.split()) < 10:
+                    continue
+                
+                # Extract memories from this conversation batch
+                created = await self._extract_memories_from_text(conversation_content)
+                memories_created += created
+                
+                # Throttle requests to avoid rate limits
+                await asyncio.sleep(0.5)
+            
+            # Send a summary of what happened
+            if memories_created > 0:
+                response = f"{self.character_name} has processed the recent conversations and created {memories_created} new memories!"
+            else:
+                response = f"{self.character_name} analyzed the conversations but didn't find any significant information to remember."
+                
+            await interaction.channel.send(response)
+            
+        except Exception as e:
+            logger.error(f"Error during sleep command: {e}")
+            await interaction.channel.send(f"Something went wrong while processing recent messages: {str(e)[:100]}...")
+            
+    async def _extract_memories_from_text(self, text_content):
+        """Extract and store important information from any text as memories"""
+        if not self.ai_client or not self.chat_model:
+            return 0
+        
+        try:
+            # Create a system prompt for memory extraction
+            system_prompt = """You are an AI designed to extract meaningful information from conversations or text that would be valuable to remember for future interactions.
+
+            Instructions:
+            1. Analyze the provided text.
+            2. Identify significant information such as:
+               - Personal preferences (likes, dislikes)
+               - Background information (job, location, family)
+               - Important events (past or planned)
+               - Goals or needs expressed
+               - Problems being faced
+               - Relationships between people
+
+            3. For each piece of significant information, output a JSON object with these key-value pairs:
+               - "topic": A short, descriptive topic name (e.g., "User's Job", "Birthday Plans")
+               - "detail": A concise factual statement summarizing what to remember
+               - "importance": A number from 1-10 indicating how important this memory is (10 being most important)
+
+            4. Format your output as a JSON array of these objects.
+            5. If nothing significant was found, return an empty array: []
+
+            Only extract specific, factual information, and focus on details that would be useful to remember in future conversations.
+            Your output should be ONLY a valid JSON array with no additional text.
+            """
+            
+            # Call API to analyze conversation
+            memory_analysis = await self._call_chat_api(
+                text_content,
+                system_prompt=system_prompt
+            )
+            
+            # Process the response to extract memory information
+            try:
+                # Look for JSON in the response (in case there's any non-JSON text)
+                import re
+                json_match = re.search(r'\[.*\]', memory_analysis, re.DOTALL)
+                
+                if json_match:
+                    memory_json = json_match.group(0)
+                    memory_data = json.loads(memory_json)
+                    
+                    # Track how many memories we created
+                    memories_created = 0
+                    
+                    # Update memory with extracted information
+                    for memory in memory_data:
+                        topic = memory.get("topic")
+                        detail = memory.get("detail")
+                        importance = memory.get("importance", 5)
+                        
+                        if topic and detail and importance >= 3:  # Only store memories with importance >= 3
+                            # Store memory with system attribution
+                            self.long_term_memory[topic] = {
+                                "detail": detail,
+                                "source": "Sleep Analysis",
+                                "timestamp": datetime.datetime.now().isoformat(),
+                                "importance": importance
+                            }
+                            logger.info(f"Added memory from sleep: {topic}: {detail} (importance: {importance})")
+                            memories_created += 1
+                    
+                    # Save memory if anything was added
+                    if memories_created > 0:
+                        self._save_memory()
+                    
+                    return memories_created
+                else:
+                    logger.info("No memory-worthy information found in sleep analysis")
+                    return 0
+                    
+            except (json.JSONDecodeError, AttributeError) as e:
+                logger.warning(f"Failed to parse memory response in sleep: {memory_analysis[:100]}... Error: {str(e)}")
+                return 0
+                
+        except Exception as e:
+            logger.error(f"Error in sleep memory extraction: {e}")
+            return 0
+        
     async def memory_command(self, interaction: discord.Interaction):
-        """View or manage memories"""
+        """View or manage memories with source attribution"""
         # Only allow the owner to manage memories
         if interaction.user.id != self.owner_id:
             memory_display = "**Long-term Memory:**\n"
             if not self.long_term_memory:
                 memory_display += "No memories stored yet."
             else:
-                for topic, details in self.long_term_memory.items():
-                    memory_display += f"- **{topic}**: {details}\n"
+                for topic, memory_data in self.long_term_memory.items():
+                    detail = memory_data["detail"]
+                    source = memory_data["source"]
+                    memory_display += f"- **{topic}**: {detail} (from {source})\n"
 
             await interaction.response.send_message(memory_display)
             return
@@ -339,8 +790,10 @@ class SimpleCharacterBot(commands.Bot):
         if not self.long_term_memory:
             memory_display += "No memories stored yet."
         else:
-            for topic, details in self.long_term_memory.items():
-                memory_display += f"- **{topic}**: {details}\n"
+            for topic, memory_data in self.long_term_memory.items():
+                detail = memory_data["detail"]
+                source = memory_data["source"]
+                memory_display += f"- **{topic}**: {detail} (from {source})\n"
 
         await interaction.response.send_message(memory_display, view=view)
 
@@ -495,12 +948,13 @@ class SimpleCharacterBot(commands.Bot):
         """
         Search for memories relevant to the current message content.
         Uses more sophisticated matching to find relevant memories.
+        Now includes source attribution in the returned memory strings.
         
         Args:
             message_content: The user's message content
             
         Returns:
-            List of relevant memory strings in format "Topic: Detail"
+            List of relevant memory strings in format "Topic: Detail (from Source)"
         """
         if not self.long_term_memory:
             return []
@@ -511,9 +965,11 @@ class SimpleCharacterBot(commands.Bot):
         # Score each memory for relevance
         memory_scores = {}
         
-        for topic, detail in self.long_term_memory.items():
+        for topic, memory_data in self.long_term_memory.items():
             score = 0
             topic_lower = topic.lower()
+            detail = memory_data["detail"]
+            source = memory_data["source"]
             
             # Direct topic match (highest priority)
             if topic_lower in message_content.lower():
@@ -533,7 +989,8 @@ class SimpleCharacterBot(commands.Bot):
                     
             # If we found any relevance, add to potential matches
             if score > 0:
-                memory_scores[topic] = (score, f"{topic}: {detail}")
+                formatted_memory = f"{topic}: {detail} (from {source})"
+                memory_scores[topic] = (score, formatted_memory)
         
         # Sort by relevance score (highest first)
         sorted_memories = sorted(memory_scores.items(), key=lambda x: x[1][0], reverse=True)
@@ -546,6 +1003,7 @@ class SimpleCharacterBot(commands.Bot):
             logger.info(f"Found {len(memory_matches)} relevant memories: {[m.split(':')[0] for m in memory_matches]}")
         
         return memory_matches
+    
     
     async def _call_chat_api(
         self,
@@ -566,20 +1024,47 @@ class SimpleCharacterBot(commands.Bot):
             else:
                 # Build system prompt with character info
                 system_content = f"""You are {self.character_name}.
-    Description: {self.character_description}
-    Personality: {self.character_personality}
-    Scenario: {self.character_scenario}
-    """
+                    Description: {self.character_description}
+                    Scenario: {self.character_scenario}
+                    """
+                if self.personality_age:
+                    system_content += f"Age: {self.personality_age}\n"     
+                if self.personality_traits:
+                    system_content += f"Character Traits: {self.personality_traits}\n"
+                if self.personality_physical_traits:
+                    system_content += f"Physical Traits: {self.personality_physical_traits}\n"
+                if self.personality_tone:
+                    system_content += f"Speaking Tone: {self.personality_tone}\n"
+                if self.personality_likes:
+                    system_content += f"Likes: {self.personality_likes}\n"
+                if self.personality_dislikes:
+                    system_content += f"Dislikes: {self.personality_dislikes}\n"
+                if self.personality_goals:
+                    system_content += f"Goals: {self.personality_goals}\n"
+                if self.personality_history:
+                    system_content += f"Background: {self.personality_history}\n"
+                if self.personality_catchphrases:
+                    system_content += f"Signature Phrases: {self.personality_catchphrases}\n"
+                    
+                # Add conversational examples with substitution
+                if self.personality_conversational_examples:
+                    examples = self.personality_conversational_examples.replace("{user}", user_name)
+                    system_content += f"\nExample Interactions:\n{examples}\n"
+                    
+                # Add conversational goals with substitution
+                if self.personality_conversational_goals:
+                    goals = self.personality_conversational_goals.replace("{user}", user_name)
+                    system_content += f"\nConversational Goals: {goals}\n"
 
-                # Add custom system prompt if available
-                if self.system_prompt:
-                    system_content += f"\n{self.system_prompt}"
+            # Add custom system prompt if available
+            if self.system_prompt:
+                system_content = f"{self.system_prompt}\n\n{system_content}"
 
-                # Add relevant information (lore and memories) if available
-                if relevant_info and len(relevant_info) > 0:
-                    system_content += "\nImportant information you know:\n"
-                    for info in relevant_info:
-                        system_content += f"- {info}\n"
+            # Add relevant information (lore and memories) if available
+            if relevant_info and len(relevant_info) > 0:
+                system_content += "\nImportant information you know:\n"
+                for info in relevant_info:
+                    system_content += f"- {info}\n"
 
             # Prepare messages list
             messages = [{"role": "system", "content": system_content}]
@@ -782,28 +1267,6 @@ class SimpleCharacterBot(commands.Bot):
         modal.on_submit = on_submit
         await interaction.response.send_modal(modal)
 
-    async def edit_personality_command(self, interaction: discord.Interaction):
-        """Edit the character's personality"""
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                "Only the bot owner can use this command", ephemeral=True
-            )
-            return
-
-        # Create modal for editing
-        modal = TextEditModal(
-            title="Edit Personality", current_text=self.character_personality
-        )
-
-        async def on_submit(modal_interaction):
-            self.character_personality = modal.text_input.value
-            self._save_config()
-            await modal_interaction.response.send_message(
-                "Character personality updated!", ephemeral=True
-            )
-
-        modal.on_submit = on_submit
-        await interaction.response.send_modal(modal)
 
     async def edit_scenario_command(self, interaction: discord.Interaction):
         """Edit the character's scenario"""
@@ -949,6 +1412,26 @@ class SimpleCharacterBot(commands.Bot):
             "All data and settings saved!", ephemeral=True
         )
 
+    # Method to handle regex command
+    async def regex_command(self, interaction: discord.Interaction):
+        """Manage RegEx scripts for text manipulation patterns"""
+        # Only allow the bot owner to access this command
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can manage RegEx scripts.", ephemeral=True
+            )
+            return
+            
+        # Create view and initial embed
+        view = RegexManagementView(self.regex_manager)
+        embed = await view.generate_embed(interaction)
+        
+        await interaction.response.send_message(
+            embed=embed,
+            view=view,
+            ephemeral=True
+        )
+        
     async def on_ready(self):
         """Called when the bot is ready"""
         logger.info(f"Logged in as {self.user.name} ({self.user.id})")
@@ -991,6 +1474,23 @@ class SimpleCharacterBot(commands.Bot):
         if is_ooc and message.author.id == self.owner_id:
             await self._handle_ooc_command(message)
             return
+        
+        # Apply RegEx to message content if needed
+        processed_content = message.content
+        if hasattr(self, 'regex_manager'):
+            # Define common macros
+            macros = {
+                "user": message.author.display_name,
+                "char": self.character_name,
+                "server": message.guild.name if message.guild else "DM",
+                "channel": message.channel.name if hasattr(message.channel, 'name') else "DM"
+            }
+            
+            processed_content = self.regex_manager.process_text(
+                processed_content, 
+                "user_input", 
+                macros=macros
+            )
 
         if should_respond:
             async with message.channel.typing():
@@ -1034,6 +1534,14 @@ class SimpleCharacterBot(commands.Bot):
                     channel_history,
                     relevant_info,
                 )
+                
+                # Process AI response with regex if needed
+                if hasattr(self, 'regex_manager'):
+                    response = self.regex_manager.process_text(
+                        response, 
+                        "ai_response", 
+                        macros=macros
+                    )
 
                 # Add response to history
                 channel_history.append(
@@ -1468,7 +1976,7 @@ class SimpleCharacterBot(commands.Bot):
     
     
     async def _update_memory_from_conversation(self, user_name, user_message, bot_response):
-        """Extract and store important information from conversations as memories"""
+        """Extract and store important information from conversations as memories with user attribution"""
         if not self.ai_client or not self.chat_model:
             return
             
@@ -1496,6 +2004,7 @@ class SimpleCharacterBot(commands.Bot):
         - User saying "I have an interview tomorrow at 9am" → {"Job Interview": "User has an interview scheduled tomorrow at 9am"}
 
         Only extract specific, factual information (not vague impressions), and focus on details about the user, not general topics.
+        Unless it is when the user explicitly requests something to be remembered. You should remember such things, regardless of how pointless.
         Your output should be ONLY a valid JSON object with no additional text.
         """
             
@@ -1507,25 +2016,30 @@ class SimpleCharacterBot(commands.Bot):
                 conversation_content,
                 system_prompt=system_prompt
             )
+            print(memory_analysis)
             
             # Process the response to extract memory information
             try:
                 # Look for JSON in the response (in case there's any non-JSON text)
                 import re
-                print(memory_analysis)
                 json_match = re.search(r'\{.*\}', memory_analysis, re.DOTALL)
                 
                 if json_match:
                     memory_json = json_match.group(0)
                     memory_data = json.loads(memory_json)
                     
-                    # Update memory with extracted information
+                    # Update memory with extracted information and user attribution
                     for topic, detail in memory_data.items():
                         if topic and detail:  # Make sure they're not empty
                             # Keep only meaningful memories (more than 3 chars)
                             if len(detail) > 3:
-                                self.long_term_memory[topic] = detail
-                                logger.info(f"Added memory: {topic}: {detail}")
+                                # Store memory with user attribution
+                                self.long_term_memory[topic] = {
+                                    "detail": detail,
+                                    "source": user_name,  # Record who provided this information
+                                    "timestamp": datetime.datetime.now().isoformat()
+                                }
+                                logger.info(f"Added memory from {user_name}: {topic}: {detail}")
                     
                     # Save memory if anything was added
                     if memory_data:
@@ -1538,7 +2052,7 @@ class SimpleCharacterBot(commands.Bot):
                 
         except Exception as e:
             logger.error(f"Error updating memory from conversation: {e}")
-            
+                
 
     async def _handle_ooc_command(self, message: discord.Message):
         """Handle out-of-character commands from the owner"""
@@ -1546,10 +2060,119 @@ class SimpleCharacterBot(commands.Bot):
         parts = clean_content.split(" ", 1)
         command = parts[0].lower() if parts else ""
         args = parts[1] if len(parts) > 1 else ""
-
+    
         # This is just the memory-related part of the _handle_ooc_command method
 
-        if command == "memory" or command == "wack":
+        if command == "regex":
+            if not args:
+                # Show help for regex commands
+                help_text = "**RegEx Commands:**\n"
+                help_text += "- `//regex list` - List all regex scripts\n"
+                help_text += "- `//regex test <script_name> <text>` - Test a regex script on text\n"
+                help_text += "- `//regex toggle <script_name>` - Enable/disable a script\n"
+                help_text += "- `//regex info <script_name>` - Show detailed info about a script\n"
+                await message.reply(help_text)
+                return
+                
+            subparts = args.split(" ", 1)
+            subcommand = subparts[0].lower() if subparts else ""
+            subargs = subparts[1] if len(subparts) > 1 else ""
+            
+            if subcommand == "list":
+                # List all regex scripts
+                scripts = self.regex_manager.scripts
+                
+                embed = discord.Embed(title="RegEx Scripts")
+                
+                if scripts:
+                    scripts_text = ""
+                    for i, script in enumerate(scripts, 1):
+                        status = "✅" if not script.disabled else "❌"
+                        scripts_text += f"{i}. {status} **{script.name}**\n"
+                    embed.add_field(name="Scripts", value=scripts_text, inline=False)
+                else:
+                    embed.add_field(name="Scripts", value="No scripts", inline=False)
+                    
+                await message.reply(embed=embed)
+                
+            elif subcommand == "test" and subargs:
+                # Test a regex script on text
+                test_parts = subargs.split(" ", 1)
+                if len(test_parts) != 2:
+                    await message.reply("Format: //regex test <script_name> <text>")
+                    return
+                    
+                script_name, test_text = test_parts
+                
+                # Find the script
+                script = self.regex_manager.get_script(script_name, self.character_name)
+                
+                if not script:
+                    await message.reply(f"Script '{script_name}' not found.")
+                    return
+                    
+                # Test the script
+                result = script.apply(test_text)
+                
+                embed = discord.Embed(title=f"RegEx Test: {script.name}")
+                embed.add_field(name="Input", value=test_text[:1024], inline=False)
+                embed.add_field(name="Output", value=result[:1024], inline=False)
+                
+                if test_text == result:
+                    embed.set_footer(text="⚠️ No changes were made")
+                    embed.color = discord.Color.yellow()
+                else:
+                    embed.set_footer(text="✅ Text was transformed")
+                    embed.color = discord.Color.green()
+                    
+                await message.reply(embed=embed)
+                
+            elif subcommand == "toggle" and subargs:
+                # Enable/disable a script
+                script_name = subargs.strip()
+                script = self.regex_manager.get_script(script_name)
+                
+                if not script:
+                    await message.reply(f"Script '{script_name}' not found.")
+                    return
+                    
+                script.disabled = not script.disabled
+                
+                # Save the changes
+                self.regex_manager.save_scripts()
+                    
+                status = "disabled" if script.disabled else "enabled"
+                await message.reply(f"Script '{script_name}' is now {status}.")
+                
+            elif subcommand == "info" and subargs:
+                # Show detailed info about a script
+                script_name = subargs.strip()
+                script = self.regex_manager.get_script(script_name)
+                
+                if not script:
+                    await message.reply(f"Script '{script_name}' not found.")
+                    return
+                    
+                embed = discord.Embed(title=f"RegEx Script: {script.name}")
+                embed.add_field(name="Pattern", value=f"`{script.find_pattern}`", inline=False)
+                embed.add_field(name="Replace With", value=f"`{script.replace_with}`", inline=False)
+                
+                if script.trim_out:
+                    embed.add_field(name="Trim Out", value=f"`{script.trim_out}`", inline=False)
+                    
+                affects = []
+                if script.affects_user_input: affects.append("User Input")
+                if script.affects_ai_response: affects.append("AI Response")
+                if script.affects_slash_commands: affects.append("Slash Commands")
+                if script.affects_world_info: affects.append("World Info")
+                if script.affects_reasoning: affects.append("Reasoning")
+                
+                embed.add_field(name="Affects", value=", ".join(affects) if affects else "None", inline=False)
+                embed.add_field(name="Status", value="Enabled" if not script.disabled else "Disabled", inline=False)
+            else:
+                await message.reply(f"Unknown regex subcommand: {subcommand}")
+                
+        elif command == "memory" or command == "wack":
             if args.lower() == "show":
                 memory_display = "**Long-term Memory:**\n"
                 if not self.long_term_memory:
@@ -1557,10 +2180,12 @@ class SimpleCharacterBot(commands.Bot):
                 else:
                     # Sort memories alphabetically by topic for better readability
                     sorted_memories = sorted(self.long_term_memory.items())
-                    for topic, details in sorted_memories:
-                        memory_display += f"- **{topic}**: {details}\n"
+                    for topic, memory_data in sorted_memories:
+                        detail = memory_data["detail"]
+                        source = memory_data["source"]
+                        memory_display += f"- **{topic}**: {detail} (from {source})\n"
                 await message.reply(memory_display)
-            elif args.lower() == "search" and len(parts) > 2:
+            elif args.lower().startswith("search ") and len(parts) > 2:
                 # New command to search memories based on keywords
                 search_term = parts[2]
                 relevant_memories = self._search_memory(search_term)
@@ -1568,9 +2193,7 @@ class SimpleCharacterBot(commands.Bot):
                 if relevant_memories:
                     memory_display = f"**Memories matching '{search_term}':**\n"
                     for memory in relevant_memories:
-                        topic, detail = memory.split(":", 1)
-                        memory_display += f"- **{topic}**:{detail}\n"
-                    await message.reply(memory_display)
+                        await message.reply(memory_display + memory)
                 else:
                     await message.reply(f"No memories found matching '{search_term}'")
             elif args.lower().startswith("add "):
@@ -1578,9 +2201,14 @@ class SimpleCharacterBot(commands.Bot):
                 mem_parts = args[4:].split(":", 1)
                 if len(mem_parts) == 2:
                     topic, details = mem_parts
-                    self.long_term_memory[topic.strip()] = details.strip()
+                    # Store with the command issuer as source
+                    self.long_term_memory[topic.strip()] = {
+                        "detail": details.strip(),
+                        "source": message.author.display_name,
+                        "timestamp": datetime.datetime.now().isoformat()
+                    }
                     self._save_memory()
-                    await message.reply(f"Added memory: {topic.strip()}")
+                    await message.reply(f"Added memory: {topic.strip()} (from {message.author.display_name})")
                 else:
                     await message.reply(
                         "Invalid format. Use: //memory add Topic: Details"
@@ -1598,7 +2226,6 @@ class SimpleCharacterBot(commands.Bot):
                 self.long_term_memory = {}
                 self._save_memory()
                 await message.reply("All memories cleared.")
-
         elif command == "lore":
             subparts = args.split(" ", 1)
             subcommand = subparts[0].lower() if subparts else ""
@@ -1662,11 +2289,28 @@ class SimpleCharacterBot(commands.Bot):
             )
 
         elif command == "persona":
-            # Show current persona details
+            # Show current persona details with additional traits
             persona_display = f"**{self.character_name} Persona:**\n"
             persona_display += f"**Description:** {self.character_description}\n"
-            persona_display += f"**Personality:** {self.character_personality}\n"
             persona_display += f"**Scenario:** {self.character_scenario}\n"
+            
+            # Add new personality details
+            if self.personality_age:
+                persona_display += f"**Age:** {self.personality_age}\n"
+            if self.personality_traits:
+                persona_display += f"**Traits:** {self.personality_traits}\n"
+            if self.personality_likes:
+                persona_display += f"**Likes:** {self.personality_likes}\n"
+            if self.personality_dislikes:
+                persona_display += f"**Dislikes:** {self.personality_dislikes}\n"
+            if self.personality_tone:
+                persona_display += f"**Tone:** {self.personality_tone}\n"
+            if self.personality_history:
+                history_preview = self.personality_history[:100] + "..." if len(self.personality_history) > 100 else self.personality_history
+                persona_display += f"**History:** {history_preview}\n"
+            if self.personality_catchphrases:
+                persona_display += f"**Catchphrases:** {self.personality_catchphrases}\n"
+            
             await message.reply(persona_display)
 
         elif command == "save":
@@ -1767,7 +2411,6 @@ class SimpleCharacterBot(commands.Bot):
         # Build a prompt using character information and history
         prompt = f"""Character: {self.character_name}
             Description: {self.character_description}
-            Personality: {self.character_personality}
             Scenario: {self.character_scenario}
 
             User: {user_name}
@@ -1879,27 +2522,30 @@ class MemoryManagementView(discord.ui.View):
         self.bot = bot
 
     @discord.ui.button(label="Add Memory", style=discord.ButtonStyle.primary)
-    async def add_memory(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def add_memory(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = MemoryEntryModal()
 
         async def on_submit(modal_interaction):
             topic = modal.topic_input.value
             details = modal.details_input.value
-            self.bot.long_term_memory[topic] = details
+            
+            # Store memory with user attribution
+            self.bot.long_term_memory[topic] = {
+                "detail": details,
+                "source": interaction.user.display_name,  # Use the name of the person adding the memory
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
             self.bot._save_memory()
             await modal_interaction.response.send_message(
-                f"Added memory: {topic}", ephemeral=True
+                f"Added memory: {topic} (from {interaction.user.display_name})", ephemeral=True
             )
 
         modal.on_submit = on_submit
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Clear All Memory", style=discord.ButtonStyle.danger)
-    async def clear_memory(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
+    async def clear_memory(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.bot.long_term_memory = {}
         self.bot._save_memory()
         await interaction.response.send_message("Memory cleared!", ephemeral=True)
@@ -2014,7 +2660,7 @@ class SettingsView(discord.ui.View):
 # Main function to run the bot
 def run_bot(config_path: str):
     """Run the character bot with the specified configuration file"""
-    bot = SimpleCharacterBot(config_path)
+    bot = OpenShape(config_path)
 
     # Get token from config
     with open(config_path, "r", encoding="utf-8") as f:
