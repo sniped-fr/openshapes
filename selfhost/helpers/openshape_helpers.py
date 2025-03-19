@@ -233,6 +233,7 @@ class MemoryManager:
 
         Only extract specific, factual information (not vague impressions), and focus on details about the user, not general topics.
         Unless it is when the user explicitly requests something to be remembered. You should remember such things, regardless of how pointless.
+        Instead of "User", use the explicit username associated with the given request. "User" would refer  to where you are not certain what someone said. Assign a proper name whenevr you are reasonably able.
         Your output should be ONLY a valid JSON object with no additional text.
         """
             
