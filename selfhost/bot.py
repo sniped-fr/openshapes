@@ -11,6 +11,7 @@ from openai import AsyncOpenAI
 import asyncio
 import aiohttp
 from discord.ext import tasks
+from helpers.regex_extension import *
 
 
 # Configure logging
@@ -327,6 +328,14 @@ class OpenShape(commands.Bot):
                 callback=self.sleep_command,
             ),
         )
+        # Regex command
+        self.tree.add_command(
+            app_commands.Command(
+                name="regex",
+                description="Manage RegEx pattern scripts for text manipulation",
+                callback=self.regex_command,
+            )
+        )
         # Configuration commands (owner only)
         for guild_id in self.character_config.get("allowed_guilds", []):
             guild = discord.Object(id=guild_id)
@@ -376,6 +385,8 @@ class OpenShape(commands.Bot):
                 ),
                 guild=guild,
             )
+            
+        self.regex_manager = RegexManager(self)
 
     async def character_info_command(self, interaction: discord.Interaction):
         """Public command to show character information"""
@@ -754,6 +765,8 @@ class OpenShape(commands.Bot):
         except Exception as e:
             logger.error(f"Error in sleep memory extraction: {e}")
             return 0
+
+          
     async def memory_command(self, interaction: discord.Interaction):
         """View or manage memories with source attribution"""
         # Only allow the owner to manage memories
@@ -1399,6 +1412,26 @@ class OpenShape(commands.Bot):
             "All data and settings saved!", ephemeral=True
         )
 
+    # Method to handle regex command
+    async def regex_command(self, interaction: discord.Interaction):
+        """Manage RegEx scripts for text manipulation patterns"""
+        # Only allow the bot owner to access this command
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can manage RegEx scripts.", ephemeral=True
+            )
+            return
+            
+        # Create view and initial embed
+        view = RegexManagementView(self.regex_manager)
+        embed = await view.generate_embed(interaction)
+        
+        await interaction.response.send_message(
+            embed=embed,
+            view=view,
+            ephemeral=True
+        )
+        
     async def on_ready(self):
         """Called when the bot is ready"""
         logger.info(f"Logged in as {self.user.name} ({self.user.id})")
@@ -1441,6 +1474,23 @@ class OpenShape(commands.Bot):
         if is_ooc and message.author.id == self.owner_id:
             await self._handle_ooc_command(message)
             return
+        
+        # Apply RegEx to message content if needed
+        processed_content = message.content
+        if hasattr(self, 'regex_manager'):
+            # Define common macros
+            macros = {
+                "user": message.author.display_name,
+                "char": self.character_name,
+                "server": message.guild.name if message.guild else "DM",
+                "channel": message.channel.name if hasattr(message.channel, 'name') else "DM"
+            }
+            
+            processed_content = self.regex_manager.process_text(
+                processed_content, 
+                "user_input", 
+                macros=macros
+            )
 
         if should_respond:
             async with message.channel.typing():
@@ -1484,6 +1534,14 @@ class OpenShape(commands.Bot):
                     channel_history,
                     relevant_info,
                 )
+                
+                # Process AI response with regex if needed
+                if hasattr(self, 'regex_manager'):
+                    response = self.regex_manager.process_text(
+                        response, 
+                        "ai_response", 
+                        macros=macros
+                    )
 
                 # Add response to history
                 channel_history.append(
@@ -2002,10 +2060,119 @@ class OpenShape(commands.Bot):
         parts = clean_content.split(" ", 1)
         command = parts[0].lower() if parts else ""
         args = parts[1] if len(parts) > 1 else ""
-
+    
         # This is just the memory-related part of the _handle_ooc_command method
 
-        if command == "memory" or command == "wack":
+        if command == "regex":
+            if not args:
+                # Show help for regex commands
+                help_text = "**RegEx Commands:**\n"
+                help_text += "- `//regex list` - List all regex scripts\n"
+                help_text += "- `//regex test <script_name> <text>` - Test a regex script on text\n"
+                help_text += "- `//regex toggle <script_name>` - Enable/disable a script\n"
+                help_text += "- `//regex info <script_name>` - Show detailed info about a script\n"
+                await message.reply(help_text)
+                return
+                
+            subparts = args.split(" ", 1)
+            subcommand = subparts[0].lower() if subparts else ""
+            subargs = subparts[1] if len(subparts) > 1 else ""
+            
+            if subcommand == "list":
+                # List all regex scripts
+                scripts = self.regex_manager.scripts
+                
+                embed = discord.Embed(title="RegEx Scripts")
+                
+                if scripts:
+                    scripts_text = ""
+                    for i, script in enumerate(scripts, 1):
+                        status = "✅" if not script.disabled else "❌"
+                        scripts_text += f"{i}. {status} **{script.name}**\n"
+                    embed.add_field(name="Scripts", value=scripts_text, inline=False)
+                else:
+                    embed.add_field(name="Scripts", value="No scripts", inline=False)
+                    
+                await message.reply(embed=embed)
+                
+            elif subcommand == "test" and subargs:
+                # Test a regex script on text
+                test_parts = subargs.split(" ", 1)
+                if len(test_parts) != 2:
+                    await message.reply("Format: //regex test <script_name> <text>")
+                    return
+                    
+                script_name, test_text = test_parts
+                
+                # Find the script
+                script = self.regex_manager.get_script(script_name, self.character_name)
+                
+                if not script:
+                    await message.reply(f"Script '{script_name}' not found.")
+                    return
+                    
+                # Test the script
+                result = script.apply(test_text)
+                
+                embed = discord.Embed(title=f"RegEx Test: {script.name}")
+                embed.add_field(name="Input", value=test_text[:1024], inline=False)
+                embed.add_field(name="Output", value=result[:1024], inline=False)
+                
+                if test_text == result:
+                    embed.set_footer(text="⚠️ No changes were made")
+                    embed.color = discord.Color.yellow()
+                else:
+                    embed.set_footer(text="✅ Text was transformed")
+                    embed.color = discord.Color.green()
+                    
+                await message.reply(embed=embed)
+                
+            elif subcommand == "toggle" and subargs:
+                # Enable/disable a script
+                script_name = subargs.strip()
+                script = self.regex_manager.get_script(script_name)
+                
+                if not script:
+                    await message.reply(f"Script '{script_name}' not found.")
+                    return
+                    
+                script.disabled = not script.disabled
+                
+                # Save the changes
+                self.regex_manager.save_scripts()
+                    
+                status = "disabled" if script.disabled else "enabled"
+                await message.reply(f"Script '{script_name}' is now {status}.")
+                
+            elif subcommand == "info" and subargs:
+                # Show detailed info about a script
+                script_name = subargs.strip()
+                script = self.regex_manager.get_script(script_name)
+                
+                if not script:
+                    await message.reply(f"Script '{script_name}' not found.")
+                    return
+                    
+                embed = discord.Embed(title=f"RegEx Script: {script.name}")
+                embed.add_field(name="Pattern", value=f"`{script.find_pattern}`", inline=False)
+                embed.add_field(name="Replace With", value=f"`{script.replace_with}`", inline=False)
+                
+                if script.trim_out:
+                    embed.add_field(name="Trim Out", value=f"`{script.trim_out}`", inline=False)
+                    
+                affects = []
+                if script.affects_user_input: affects.append("User Input")
+                if script.affects_ai_response: affects.append("AI Response")
+                if script.affects_slash_commands: affects.append("Slash Commands")
+                if script.affects_world_info: affects.append("World Info")
+                if script.affects_reasoning: affects.append("Reasoning")
+                
+                embed.add_field(name="Affects", value=", ".join(affects) if affects else "None", inline=False)
+                embed.add_field(name="Status", value="Enabled" if not script.disabled else "Disabled", inline=False)
+            else:
+                await message.reply(f"Unknown regex subcommand: {subcommand}")
+                
+        elif command == "memory" or command == "wack":
             if args.lower() == "show":
                 memory_display = "**Long-term Memory:**\n"
                 if not self.long_term_memory:
