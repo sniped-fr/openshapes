@@ -972,6 +972,8 @@ class OpenShape(commands.Bot):
 
         if should_respond:
             async with message.channel.typing():
+                guild_id = str(message.guild.id) if message.guild else "global"
+                
                 # Remove mentions from the message
                 clean_content = re.sub(r"<@!?(\d+)>", "", message.content).strip()
 
@@ -996,7 +998,7 @@ class OpenShape(commands.Bot):
                 relevant_lore = self.lorebook_manager.get_relevant_entries(clean_content)
                 
                 # Get relevant memories using our new search function
-                relevant_memories = self.memory_manager.search_memory(clean_content)
+                relevant_memories = self.memory_manager.search_memory(clean_content, guild_id)
                 
                 # Combine lore and memories into single relevant_info list
                 relevant_info = []
@@ -1036,8 +1038,8 @@ class OpenShape(commands.Bot):
                     channel_history = channel_history[-8:]
 
                 # Update memory if there's something important to remember
-                await self.update_memory_from_conversation(
-                    message.author.display_name, clean_content, response
+                await self.memory_manager.update_memory_from_conversation(
+                    message.author.display_name, clean_content, response, guild_id
                 )
 
                 # Save conversation periodically
@@ -1312,6 +1314,7 @@ class OpenShape(commands.Bot):
         parts = clean_content.split(" ", 1)
         command = parts[0].lower() if parts else ""
         args = parts[1] if len(parts) > 1 else ""
+        guild_id = str(message.guild.id) if message.guild else "global"
     
         if command == "regex":
             if not args:
@@ -1426,26 +1429,86 @@ class OpenShape(commands.Bot):
                 
         elif command == "memory" or command == "wack":
             if args.lower() == "show":
-                memory_display = self.format_memories_for_display()
-                await message.reply(memory_display)
+                memory_display = self.memory_manager.format_memories_for_display(guild_id)
+            
+                # Split long memory display into chunks of 1900 characters (leaving some room for formatting)
+                if len(memory_display) > 1900:
+                    chunks = []
+                    current_chunk = "**Character Memories:**\n"
+                    
+                    # Split by memory entries (assuming they're separated by newlines)
+                    memory_entries = memory_display.split("\n")
+                    
+                    for entry in memory_entries:
+                        # Skip empty lines
+                        if not entry.strip():
+                            continue
+                            
+                        # If adding this entry would exceed the limit, start a new chunk
+                        if len(current_chunk) + len(entry) + 1 > 1900:
+                            chunks.append(current_chunk)
+                            current_chunk = f"**Character Memories (continued):**\n{entry}\n"
+                        else:
+                            current_chunk += f"{entry}\n"
+                    
+                    # Add the last chunk if it has content
+                    if current_chunk.strip() != "**Character Memories (continued):**":
+                        chunks.append(current_chunk)
+                    
+                    # Send each chunk as a separate message
+                    for i, chunk in enumerate(chunks):
+                        await message.reply(chunk)
+                else:
+                    # Send as a single message if it's short enough
+                    await message.reply(memory_display)
             elif args.lower().startswith("search ") and len(parts) > 2:
                 # New command to search memories based on keywords
                 search_term = parts[2]
-                relevant_memories = self.memory_manager.search_memory(search_term)
+                relevant_memories = self.memory_manager.search_memory(search_term, guild_id)
                 
                 if relevant_memories:
+                    # Combine all memories into one display string
                     memory_display = f"**Memories matching '{search_term}':**\n"
                     for memory in relevant_memories:
-                        await message.reply(memory_display + memory)
-                else:
-                    await message.reply(f"No memories found matching '{search_term}'")
+                        memory_display += f"{memory}\n"
+                    
+                    # Split long memory display into chunks of 1900 characters
+                    if len(memory_display) > 1900:
+                        chunks = []
+                        current_chunk = memory_display[:memory_display.find('\n')+1]  # Include header in first chunk
+                        
+                        # Split by memory entries (assuming they're separated by newlines)
+                        memory_entries = memory_display[memory_display.find('\n')+1:].split("\n")
+                        
+                        for entry in memory_entries:
+                            # Skip empty lines
+                            if not entry.strip():
+                                continue
+                                
+                            # If adding this entry would exceed the limit, start a new chunk
+                            if len(current_chunk) + len(entry) + 1 > 1900:
+                                chunks.append(current_chunk)
+                                current_chunk = f"**Memories matching '{search_term}' (continued):**\n{entry}\n"
+                            else:
+                                current_chunk += f"{entry}\n"
+                        
+                        # Add the last chunk if it has content
+                        if current_chunk.strip() != f"**Memories matching '{search_term}' (continued):**":
+                            chunks.append(current_chunk)
+                        
+                        # Send each chunk as a separate message
+                        for chunk in chunks:
+                            await message.reply(chunk)
+                    else:
+                        # Send as a single message if it's short enough
+                        await message.reply(memory_display)
             elif args.lower().startswith("add "):
                 # Add memory manually
                 mem_parts = args[4:].split(":", 1)
                 if len(mem_parts) == 2:
                     topic, details = mem_parts
                     # Store with the command issuer as source
-                    self.memory_manager.add_memory(topic.strip(), details.strip(), message.author.display_name)
+                    self.memory_manager.add_memory(topic.strip(), details.strip(), message.author.display_name, guild_id)
                     await message.reply(f"Added memory: {topic.strip()} (from {message.author.display_name})")
                 else:
                     await message.reply(
@@ -1454,12 +1517,12 @@ class OpenShape(commands.Bot):
             elif args.lower().startswith("remove "):
                 # Remove memory
                 topic = args[7:].strip()
-                if self.memory_manager.remove_memory(topic):
+                if self.memory_manager.remove_memory(topic, guild_id):
                     await message.reply(f"Removed memory: {topic}")
                 else:
                     await message.reply(f"Memory topic '{topic}' not found.")
             elif args.lower() == "clear" or command == "wack":
-                self.memory_manager.clear_memories()
+                self.memory_manager.clear_memories(guild_id)
                 await message.reply("All memories cleared.")
         elif command == "lore":
             subparts = args.split(" ", 1)

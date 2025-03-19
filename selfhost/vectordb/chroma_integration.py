@@ -114,7 +114,8 @@ class MemoryCommand:
     async def execute(bot, interaction):
         """Execute the memory command with ChromaDB integration"""
         try:
-
+            guild_id = str(interaction.guild.id) if interaction.guild else "global"
+            
             # Import necessary Discord UI classes
             import discord
             
@@ -156,7 +157,7 @@ class MemoryCommand:
 
             # Only allow the owner to manage memories
             if interaction.user.id != bot.owner_id:
-                memory_display = bot.format_memories_for_display()
+                memory_display = bot.format_memories_for_display(guild_id)
                 
                 # If content fits in one message, send it directly
                 if len(memory_display) <= 2000:
@@ -191,7 +192,8 @@ class MemoryCommand:
                 async def edit_memory(self, button_interaction: discord.Interaction, button: discord.ui.Button):
                     # First, get all memories to display in a select menu
                     try:
-                        results = self.bot.memory_manager.collection.get()
+                        collection = self.bot.memory_manager.get_collection_for_guild(guild_id)
+                        results = collection.get()
                         
                         if not results or not results['metadatas'] or len(results['metadatas']) == 0:
                             await button_interaction.response.send_message("No memories available to edit.", ephemeral=True)
@@ -214,7 +216,7 @@ class MemoryCommand:
                     cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
                     
                     async def confirm_callback(confirm_interaction):
-                        self.bot.clear_memories()
+                        self.bot.clear_memories(guild_id)
                         await confirm_interaction.response.send_message("All memories cleared!", ephemeral=True)
                         
                     async def cancel_callback(cancel_interaction):
@@ -259,7 +261,7 @@ class MemoryCommand:
                     source = interaction.user.display_name
                     
                     # Add memory
-                    success = self.bot.add_memory(topic, details, source)
+                    success = self.bot.add_memory(topic, details, source, guild_id)
                     
                     try:
                         if success:
@@ -337,7 +339,7 @@ class MemoryCommand:
                         edit_button = discord.ui.Button(label=f"Edit: {selected_topic}", style=discord.ButtonStyle.primary)
                         
                         async def edit_button_callback(button_interaction):
-                            edit_modal = MemoryEditModal(self.bot, selected_topic, selected_detail)
+                            edit_modal = MemoryEditModal(self.bot, selected_topic, selected_detail, guild_id)
                             await button_interaction.response.send_modal(edit_modal)
                             
                         edit_button.callback = edit_button_callback
@@ -360,10 +362,11 @@ class MemoryCommand:
                         )
 
             class MemoryEditModal(discord.ui.Modal):
-                def __init__(self, bot_instance, topic, detail):
+                def __init__(self, bot_instance, topic, detail, guild_id):
                     super().__init__(title="Edit Memory")
                     self.bot = bot_instance
                     self.original_topic = topic
+                    self.guild_id = guild_id
                     
                     self.topic_input = discord.ui.TextInput(
                         label="Topic:",
@@ -392,9 +395,9 @@ class MemoryCommand:
                     # Handle topic change - if topic changed, we need to remove old and add new
                     if new_topic != self.original_topic:
                         # Remove old memory
-                        removed = self.bot.remove_memory(self.original_topic)
+                        removed = self.bot.remove_memory(self.original_topic, self.guild_id)
                         # Add as new memory
-                        success = self.bot.add_memory(new_topic, new_detail, source)
+                        success = self.bot.add_memory(new_topic, new_detail, source, self.guild_id)
                         
                         if success:
                             await modal_interaction.followup.send(
@@ -409,11 +412,11 @@ class MemoryCommand:
                     else:
                         # Just update the detail
                         if hasattr(self.bot, 'update_memory'):
-                            success = self.bot.update_memory(new_topic, new_detail, source)
+                            success = self.bot.update_memory(new_topic, new_detail, source, self.guild_id)
                         else:
                             # Fallback if update_memory isn't available
-                            removed = self.bot.remove_memory(self.original_topic)
-                            success = self.bot.add_memory(new_topic, new_detail, source)
+                            removed = self.bot.remove_memory(self.original_topic, self.guild_id)
+                            success = self.bot.add_memory(new_topic, new_detail, source, self.guild_id)
                         
                         if success:
                             await modal_interaction.followup.send(
@@ -429,7 +432,7 @@ class MemoryCommand:
 
             # Display memories with management view for bot owner
             view = MemoryManagementView(bot)
-            memory_display = bot.format_memories_for_display()
+            memory_display = bot.format_memories_for_display(guild_id)
             
             if len(memory_display) <= 2000:
                 await interaction.response.send_message(memory_display, view=view, ephemeral=True)
@@ -458,7 +461,8 @@ class MemoryCommand:
                             
                         async def edit_callback(button_interaction):
                             try:
-                                results = self.bot.memory_manager.collection.get()
+                                collection = self.bot.memory_manager.get_collection_for_guild(guild_id)
+                                results = collection.get()
                                 
                                 if not results or not results['metadatas'] or len(results['metadatas']) == 0:
                                     await button_interaction.response.send_message("No memories available to edit.", ephemeral=True)
@@ -542,6 +546,8 @@ class SleepCommand:
         # Always defer first to prevent interaction timeouts
         await interaction.response.defer(thinking=True)
         
+        guild_id = str(interaction.guild.id) if interaction.guild else "global"
+        
         try:
             await interaction.followup.send(f"{bot.character_name} is analyzing recent conversations and going to sleep...")
         
@@ -606,7 +612,7 @@ class SleepCommand:
                 
                 try:
                     # Extract memories from this conversation batch
-                    created = await bot.extract_memories_from_text(conversation_content)
+                    created = await bot.extract_memories_from_text(conversation_content, guild_id)
                     memories_created += created
                 except Exception as batch_error:
                     import logging
