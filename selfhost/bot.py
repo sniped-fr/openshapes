@@ -1512,6 +1512,7 @@ class SimpleCharacterBot(commands.Bot):
             try:
                 # Look for JSON in the response (in case there's any non-JSON text)
                 import re
+                print(memory_analysis)
                 json_match = re.search(r'\{.*\}', memory_analysis, re.DOTALL)
                 
                 if json_match:
