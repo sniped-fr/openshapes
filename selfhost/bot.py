@@ -300,14 +300,6 @@ class SimpleCharacterBot(commands.Bot):
                 guild=guild,
             )
 
-            self.tree.add_command(
-                app_commands.Command(
-                    name="edit_personality",
-                    description="Edit the character's personality",
-                    callback=self.edit_personality_command,
-                ),
-                guild=guild,
-            )
 
             self.tree.add_command(
                 app_commands.Command(
@@ -796,7 +788,6 @@ class SimpleCharacterBot(commands.Bot):
                 # Build system prompt with character info
                 system_content = f"""You are {self.character_name}.
                     Description: {self.character_description}
-                    Personality: {self.character_personality}
                     Scenario: {self.character_scenario}
                     """
                 if self.personality_age:
@@ -1039,28 +1030,6 @@ class SimpleCharacterBot(commands.Bot):
         modal.on_submit = on_submit
         await interaction.response.send_modal(modal)
 
-    async def edit_personality_command(self, interaction: discord.Interaction):
-        """Edit the character's personality"""
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                "Only the bot owner can use this command", ephemeral=True
-            )
-            return
-
-        # Create modal for editing
-        modal = TextEditModal(
-            title="Edit Personality", current_text=self.character_personality
-        )
-
-        async def on_submit(modal_interaction):
-            self.character_personality = modal.text_input.value
-            self._save_config()
-            await modal_interaction.response.send_message(
-                "Character personality updated!", ephemeral=True
-            )
-
-        modal.on_submit = on_submit
-        await interaction.response.send_modal(modal)
 
     async def edit_scenario_command(self, interaction: discord.Interaction):
         """Edit the character's scenario"""
@@ -1932,7 +1901,6 @@ class SimpleCharacterBot(commands.Bot):
             # Show current persona details with additional traits
             persona_display = f"**{self.character_name} Persona:**\n"
             persona_display += f"**Description:** {self.character_description}\n"
-            persona_display += f"**Personality:** {self.character_personality}\n"
             persona_display += f"**Scenario:** {self.character_scenario}\n"
             
             # Add new personality details
@@ -2052,7 +2020,6 @@ class SimpleCharacterBot(commands.Bot):
         # Build a prompt using character information and history
         prompt = f"""Character: {self.character_name}
             Description: {self.character_description}
-            Personality: {self.character_personality}
             Scenario: {self.character_scenario}
 
             User: {user_name}
