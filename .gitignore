@@ -1,1 +1,5 @@
 *.json
+__pycache__/
+*.pyc
+test/
+selfhost/character_data/
