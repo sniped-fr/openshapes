@@ -126,6 +126,15 @@ class OpenShape(commands.Bot):
         # Basic commands
         self.tree.add_command(
             app_commands.Command(
+                name="openshapes",
+                description="Get help and learn how to use OpenShape bot",
+                callback=self.openshape_help_command,
+            )
+        )
+        
+        
+        self.tree.add_command(
+            app_commands.Command(
                 name="api_settings",
                 description="Configure AI API settings",
                 callback=self.api_settings_command,
@@ -207,7 +216,7 @@ class OpenShape(commands.Bot):
         # 
         self.tree.add_command(
             app_commands.Command(
-                name="sleep_command",
+                name="sleep",
                 description="Generate a long term memory.",
                 callback=self.sleep_command,
             ),
@@ -1639,6 +1648,114 @@ class OpenShape(commands.Bot):
             help_text += "- `//help` - Show this help information\n"
             await message.reply(help_text)
 
+    # Add this as a new method to the OpenShape class
+    async def openshape_help_command(self, interaction: discord.Interaction):
+        """Display help information about using the OpenShape bot"""
+        
+        embed = discord.Embed(
+            title=f"🤖 {self.character_name} Help Guide",
+            description=f"Welcome to the {self.character_name} bot! Here's how to interact with me and make the most of my features.",
+            color=0x5865F2
+        )
+        
+        # Basic interaction
+        embed.add_field(
+            name="💬 Basic Interaction",
+            value=(
+                f"• **In activated channels:** I respond to all messages automatically\n"
+                f"• **In other channels:** @ mention me or say my name ('{self.character_name}')\n"
+                f"• **Reactions:** Use 🗑️ to delete my messages, ♻️ to regenerate responses"
+            ),
+            inline=False
+        )
+        
+        # Character features
+        embed.add_field(
+            name="🎭 Character Features",
+            value=(
+                f"• `/character_info` - View my description, traits, and backstory\n"
+                f"• `/activate` - Make me respond to all messages in a channel\n"
+                f"• `/deactivate` - I'll only respond when mentioned or called by name"
+            ),
+            inline=False
+        )
+        
+        # Memory system
+        embed.add_field(
+            name="🧠 Memory System",
+            value=(
+                f"• I remember important information from our conversations\n"
+                f"• `/memory` - View what I've remembered\n"
+                f"• `/sleep` - Process recent conversations into long-term memories"
+            ),
+            inline=False
+        )
+        
+        # Lorebook
+        embed.add_field(
+            name="📚 Lorebook",
+            value=(
+                f"• Custom knowledge base that influences my understanding\n"
+                f"• `/lorebook` - View entries in the lorebook\n"
+                f"• Perfect for worldbuilding and custom knowledge"
+            ),
+            inline=False
+        )
+        
+        # Owner commands
+        if interaction.user.id == self.owner_id:
+            embed.add_field(
+                name="⚙️ Owner Controls",
+                value=(
+                    f"• `/settings` - Manage bot behavior settings\n"
+                    f"• `/api_settings` - Configure AI API settings\n"
+                    f"• `/edit_personality_traits` - Customize character traits\n"
+                    f"• `/edit_backstory` - Change character history\n"
+                    f"• `/edit_preferences` - Set likes and dislikes\n"
+                    f"• `/edit_prompt` - Change system prompt (server specific)\n"
+                    f"• `/edit_description` - Modify character description (server specific)\n"
+                    f"• `/edit_scenario` - Set interaction scenario (server specific)\n"
+                    f"• `/regex` - Manage text pattern manipulation\n"
+                    f"• `/blacklist` - Manage user access (server specific)\n"
+                    f"• `/save` - Save all current data (server specific)"
+                ),
+                inline=False
+            )
+        
+        # OOC Commands (owner only)
+        if interaction.user.id == self.owner_id:
+            embed.add_field(
+                name="🎬 Out-of-Character Commands",
+                value=(
+                    "**Use `//` or `/ooc` prefix:**\n"
+                    "• `//memory` commands - Manage memories\n"
+                    "• `//lore` commands - Manage lorebook entries\n"
+                    "• `//regex` commands - Test and toggle regex patterns\n"
+                    "• `//activate` / `//deactivate` - Quick channel toggle\n"
+                    "• `//persona` - View current persona details\n"
+                    "• `//help` - Show OOC command list\n"
+                    "• `//save` - Save all data"
+                ),
+                inline=False
+            )
+        
+        # Tips and best practices
+        embed.add_field(
+            name="💡 Tips for Best Results",
+            value=(
+                "• Ask me about topics related to my character for more immersive responses\n"
+                "• Use memory and lorebook features to build consistent interactions\n"
+                "• For complex tasks, be clear and specific in your instructions\n"
+                "• Use `/character_info` to learn more about my personality\n"
+                "• For technical help or to report issues, contact the bot owner"
+            ),
+            inline=False
+        )
+        
+        # Footer with version
+        embed.set_footer(text=f"OpenShapes v0.1 | Designed in https://discord.gg/8QSYftf48j")
+        
+        await interaction.response.send_message(embed=embed)
 
 # Main function to run the bot
 def run_bot(config_path: str):
