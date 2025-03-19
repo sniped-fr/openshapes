@@ -45,9 +45,17 @@ class SimpleCharacterBot(commands.Bot):
         self.character_description = self.character_config.get(
             "character_description", ""
         )
-        self.character_personality = self.character_config.get(
-            "character_personality", ""
-        )
+        self.personality_catchphrases = self.character_config.get("personality_catchphrases")
+        self.personality_age = self.character_config.get("personality_age")
+        self.personality_likes = self.character_config.get("personality_likes")
+        self.personality_dislikes = self.character_config.get("personality_dislikes")
+        self.personality_goals = self.character_config.get("personality_goals")
+        self.personality_traits = self.character_config.get("personality_traits")
+        self.personality_physical_traits = self.character_config.get("personality_physical_traits")
+        self.personality_tone = self.character_config.get("personality_tone")
+        self.personality_history = self.character_config.get("personality_history")
+        self.personality_conversational_goals = self.character_config.get("personality_conversational_goals")
+        self.personality_conversational_examples = self.character_config.get("personality_conversational_examples")
         self.character_scenario = self.character_config.get("character_scenario", "")
 
         # API configuration for AI integration
@@ -153,7 +161,17 @@ class SimpleCharacterBot(commands.Bot):
                 "character_name": self.character_name,
                 "system_prompt": self.system_prompt,
                 "character_description": self.character_description,
-                "character_personality": self.character_personality,
+                 "personality_catchphrases": self.personality_catchphrases,
+            "personality_age": self.personality_age,
+                "personality_likes": self.personality_likes,
+                "personality_dislikes": self.personality_dislikes,
+                "personality_goals": self.personality_goals,
+                "personality_traits": self.personality_traits,
+                "personality_physical_traits": self.personality_physical_traits,
+                "personality_tone": self.personality_tone,
+                "personality_history": self.personality_history,
+                "personality_conversational_goals": self.personality_conversational_goals,
+                "personality_conversational_examples": self.personality_conversational_examples,
                 "character_scenario": self.character_scenario,
                 "add_character_name": self.add_character_name,
                 "reply_to_name": self.reply_to_name,
@@ -237,7 +255,29 @@ class SimpleCharacterBot(commands.Bot):
                 callback=self.settings_command,
             )
         )
-
+        self.tree.add_command(
+            app_commands.Command(
+                name="edit_personality_traits",
+                description="Edit specific personality traits for the character",
+                callback=self.edit_personality_traits_command,
+            ),
+        )
+        
+        self.tree.add_command(
+            app_commands.Command(
+                name="edit_backstory",
+                description="Edit the character's history and background",
+                callback=self.edit_backstory_command,
+            ),
+        )
+        
+        self.tree.add_command(
+            app_commands.Command(
+                name="edit_preferences",
+                description="Edit what the character likes and dislikes",
+                callback=self.edit_preferences_command,
+            ),
+        )
         # Configuration commands (owner only)
         for guild_id in self.character_config.get("allowed_guilds", []):
             guild = discord.Object(id=guild_id)
@@ -299,20 +339,39 @@ class SimpleCharacterBot(commands.Bot):
     async def character_info_command(self, interaction: discord.Interaction):
         """Public command to show character information"""
         embed = discord.Embed(title=f"{self.character_name} Info", color=0x3498DB)
+        
+        # Basic info (existing)
         embed.add_field(
             name="Description",
             value=self.character_description[:1024] or "No description set",
-            inline=False,
-        )
-        embed.add_field(
-            name="Personality",
-            value=self.character_personality[:1024] or "No personality set",
             inline=False,
         )
         if self.character_scenario:
             embed.add_field(
                 name="Scenario", value=self.character_scenario[:1024], inline=False
             )
+        
+        # Add new personality details if available
+        if self.personality_age:
+            embed.add_field(name="Age", value=self.personality_age, inline=True)
+        
+        if self.personality_traits:
+            embed.add_field(name="Traits", value=self.personality_traits, inline=True)
+            
+        if self.personality_likes:
+            embed.add_field(name="Likes", value=self.personality_likes, inline=True)
+            
+        if self.personality_dislikes:
+            embed.add_field(name="Dislikes", value=self.personality_dislikes, inline=True)
+        
+        if self.personality_tone:
+            embed.add_field(name="Tone", value=self.personality_tone, inline=True)
+        
+        # Add a field for history if it exists
+        if self.personality_history:
+            # Truncate if too long
+            history = self.personality_history[:1024] + ("..." if len(self.personality_history) > 1024 else "")
+            embed.add_field(name="History", value=history, inline=False)
 
         await interaction.response.send_message(embed=embed)
 
@@ -333,6 +392,152 @@ class SimpleCharacterBot(commands.Bot):
             f"{self.character_name} will now only respond when mentioned or called by name."
         )
 
+    async def edit_personality_traits_command(self, interaction: discord.Interaction):
+        """Edit the character's specific personality traits"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+
+        # Create dropdown for selecting which trait to edit
+        options = [
+            discord.SelectOption(label="Catchphrases", value="catchphrases"),
+            discord.SelectOption(label="Age", value="age"),
+            discord.SelectOption(label="Traits", value="traits"),
+            discord.SelectOption(label="Physical Traits", value="physical"),
+            discord.SelectOption(label="Tone", value="tone"),
+            discord.SelectOption(label="Conversational Style", value="style"),
+        ]
+
+        select = discord.ui.Select(placeholder="Select trait to edit", options=options)
+
+        async def select_callback(select_interaction):
+            trait = select.values[0]
+            
+            current_values = {
+                "catchphrases": self.personality_catchphrases,
+                "age": self.personality_age,
+                "traits": self.personality_traits,
+                "physical": self.personality_physical_traits,
+                "tone": self.personality_tone,
+                "style": self.personality_conversational_examples
+            }
+            
+            # Create modal for editing
+            modal = TextEditModal(
+                title=f"Edit {trait.title()}", 
+                current_text=current_values[trait] or ""
+            )
+
+            async def on_submit(modal_interaction):
+                # Update the appropriate field
+                if trait == "catchphrases":
+                    self.personality_catchphrases = modal.text_input.value
+                elif trait == "age":
+                    self.personality_age = modal.text_input.value
+                elif trait == "traits":
+                    self.personality_traits = modal.text_input.value
+                elif trait == "physical":
+                    self.personality_physical_traits = modal.text_input.value
+                elif trait == "tone":
+                    self.personality_tone = modal.text_input.value
+                elif trait == "style":
+                    self.personality_conversational_examples = modal.text_input.value
+                    
+                self._save_config()
+                await modal_interaction.response.send_message(
+                    f"Character {trait} updated!", ephemeral=True
+                )
+
+            modal.on_submit = on_submit
+            await select_interaction.response.send_modal(modal)
+
+        select.callback = select_callback
+        view = discord.ui.View()
+        view.add_item(select)
+
+        await interaction.response.send_message(
+            "Select a personality trait to edit:", view=view, ephemeral=True
+        )
+
+    async def edit_backstory_command(self, interaction: discord.Interaction):
+        """Edit the character's history"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+
+        # Create modal for editing
+        modal = TextEditModal(
+            title="Edit Character History", 
+            current_text=self.personality_history or ""
+        )
+
+        async def on_submit(modal_interaction):
+            self.personality_history = modal.text_input.value
+            self._save_config()
+            await modal_interaction.response.send_message(
+                "Character history updated!", ephemeral=True
+            )
+
+        modal.on_submit = on_submit
+        await interaction.response.send_modal(modal)
+
+    async def edit_preferences_command(self, interaction: discord.Interaction):
+        """Edit what the character likes and dislikes"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+
+        # Create dropdown to select likes or dislikes
+        options = [
+            discord.SelectOption(label="Likes", value="likes"),
+            discord.SelectOption(label="Dislikes", value="dislikes"),
+            discord.SelectOption(label="Goals", value="goals"),
+        ]
+
+        select = discord.ui.Select(placeholder="Select preference to edit", options=options)
+
+        async def select_callback(select_interaction):
+            pref = select.values[0]
+            
+            current_values = {
+                "likes": self.personality_likes,
+                "dislikes": self.personality_dislikes,
+                "goals": self.personality_goals
+            }
+            
+            # Create modal for editing
+            modal = TextEditModal(
+                title=f"Edit {pref.title()}", 
+                current_text=current_values[pref] or ""
+            )
+
+            async def on_submit(modal_interaction):
+                # Update the appropriate field
+                if pref == "likes":
+                    self.personality_likes = modal.text_input.value
+                elif pref == "dislikes":
+                    self.personality_dislikes = modal.text_input.value
+                elif pref == "goals":
+                    self.personality_goals = modal.text_input.value
+                    
+                self._save_config()
+                await modal_interaction.response.send_message(
+                    f"Character {pref} updated!", ephemeral=True
+                )
+
+        select.callback = select_callback
+        view = discord.ui.View()
+        view.add_item(select)
+
+        await interaction.response.send_message(
+            "Select preferences to edit:", view=view, ephemeral=True
+        )
     async def memory_command(self, interaction: discord.Interaction):
         """View or manage memories with source attribution"""
         # Only allow the owner to manage memories
@@ -569,6 +774,8 @@ class SimpleCharacterBot(commands.Bot):
             logger.info(f"Found {len(memory_matches)} relevant memories: {[m.split(':')[0] for m in memory_matches]}")
         
         return memory_matches
+    
+    
     async def _call_chat_api(
         self,
         user_message,
@@ -588,20 +795,48 @@ class SimpleCharacterBot(commands.Bot):
             else:
                 # Build system prompt with character info
                 system_content = f"""You are {self.character_name}.
-    Description: {self.character_description}
-    Personality: {self.character_personality}
-    Scenario: {self.character_scenario}
-    """
+                    Description: {self.character_description}
+                    Personality: {self.character_personality}
+                    Scenario: {self.character_scenario}
+                    """
+                if self.personality_age:
+                    system_content += f"Age: {self.personality_age}\n"     
+                if self.personality_traits:
+                    system_content += f"Character Traits: {self.personality_traits}\n"
+                if self.personality_physical_traits:
+                    system_content += f"Physical Traits: {self.personality_physical_traits}\n"
+                if self.personality_tone:
+                    system_content += f"Speaking Tone: {self.personality_tone}\n"
+                if self.personality_likes:
+                    system_content += f"Likes: {self.personality_likes}\n"
+                if self.personality_dislikes:
+                    system_content += f"Dislikes: {self.personality_dislikes}\n"
+                if self.personality_goals:
+                    system_content += f"Goals: {self.personality_goals}\n"
+                if self.personality_history:
+                    system_content += f"Background: {self.personality_history}\n"
+                if self.personality_catchphrases:
+                    system_content += f"Signature Phrases: {self.personality_catchphrases}\n"
+                    
+                # Add conversational examples with substitution
+                if self.personality_conversational_examples:
+                    examples = self.personality_conversational_examples.replace("{user}", user_name)
+                    system_content += f"\nExample Interactions:\n{examples}\n"
+                    
+                # Add conversational goals with substitution
+                if self.personality_conversational_goals:
+                    goals = self.personality_conversational_goals.replace("{user}", user_name)
+                    system_content += f"\nConversational Goals: {goals}\n"
 
-                # Add custom system prompt if available
-                if self.system_prompt:
-                    system_content += f"\n{self.system_prompt}"
+            # Add custom system prompt if available
+            if self.system_prompt:
+                system_content = f"{self.system_prompt}\n\n{system_content}"
 
-                # Add relevant information (lore and memories) if available
-                if relevant_info and len(relevant_info) > 0:
-                    system_content += "\nImportant information you know:\n"
-                    for info in relevant_info:
-                        system_content += f"- {info}\n"
+            # Add relevant information (lore and memories) if available
+            if relevant_info and len(relevant_info) > 0:
+                system_content += "\nImportant information you know:\n"
+                for info in relevant_info:
+                    system_content += f"- {info}\n"
 
             # Prepare messages list
             messages = [{"role": "system", "content": system_content}]
@@ -1694,11 +1929,29 @@ class SimpleCharacterBot(commands.Bot):
             )
 
         elif command == "persona":
-            # Show current persona details
+            # Show current persona details with additional traits
             persona_display = f"**{self.character_name} Persona:**\n"
             persona_display += f"**Description:** {self.character_description}\n"
             persona_display += f"**Personality:** {self.character_personality}\n"
             persona_display += f"**Scenario:** {self.character_scenario}\n"
+            
+            # Add new personality details
+            if self.personality_age:
+                persona_display += f"**Age:** {self.personality_age}\n"
+            if self.personality_traits:
+                persona_display += f"**Traits:** {self.personality_traits}\n"
+            if self.personality_likes:
+                persona_display += f"**Likes:** {self.personality_likes}\n"
+            if self.personality_dislikes:
+                persona_display += f"**Dislikes:** {self.personality_dislikes}\n"
+            if self.personality_tone:
+                persona_display += f"**Tone:** {self.personality_tone}\n"
+            if self.personality_history:
+                history_preview = self.personality_history[:100] + "..." if len(self.personality_history) > 100 else self.personality_history
+                persona_display += f"**History:** {history_preview}\n"
+            if self.personality_catchphrases:
+                persona_display += f"**Catchphrases:** {self.personality_catchphrases}\n"
+            
             await message.reply(persona_display)
 
         elif command == "save":
