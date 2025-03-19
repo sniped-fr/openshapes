@@ -2,91 +2,112 @@
 
 ## An Open-Source Alternative to AI Characters
 
-Welcome to OpenShapes, a community-driven, open-source alternative to the proprietary AI character platform shapes.inc. OpenShapes gives you full control over your AI companions by allowing you to self-host them or use our managed service (coming soon).
+Welcome to OpenShapes, a community-driven, open-source alternative to the proprietary AI character platform shapes.inc. OpenShapes empowers you with full control over your AI companions through self-hosting or our upcoming managed service.
 
 ## Why OpenShapes?
 
-- **Full Ownership**: Your characters, your data - no dependency on third-party platforms
-- **Customization**: Modify every aspect of your AI character's behavior and responses
-- **Privacy**: Host your AI companions on your own infrastructure
-- **Cost-Effective**: Use any AI model provider of your choice, including more affordable options
-- **Future-Proof**: No risk of service shutdowns or unwanted changes to your characters
+- **Full Ownership**: Your characters, your data—no reliance on third-party platforms.
+- **Customization**: Tailor every detail of your AI character’s behavior and responses.
+- **Privacy**: Host your AI companions on your own infrastructure.
+- **Cost-Effective**: Choose any AI model provider, including budget-friendly options.
+- **Future-Proof**: No risk of service shutdowns or unexpected changes.
 
 ## Getting Started
 
-You have two main ways to use OpenShapes:
+Explore two ways to use OpenShapes:
 
 ### Option 1: Self-Hosting (Available Now)
 
-Self-host your AI characters on your own infrastructure. Complete control, maximum flexibility.
+Run your AI characters on your own infrastructure for complete control and flexibility.  
 [**Go to Self-Hosting Guide →**](#self-hosting-guide)
 
 ### Option 2: Managed Service (Coming Soon)
 
-Use our UI-based platform to create and manage your AI characters without technical setup.
-_Stay tuned for updates!_
+Create and manage AI characters via our user-friendly platform—no technical setup required.  
+*Stay tuned for updates!*
 
 ---
 
 ## Self-Hosting Guide
 
-This guide will walk you through setting up your own self-hosted OpenShape from an existing shapes.inc character or creating a new one from scratch.
+This guide walks you through setting up a self-hosted OpenShapes instance, whether migrating from shapes.inc or starting fresh.
 
 ### Prerequisites
 
-- Basic command line knowledge
-- A Discord account and server where you have admin permissions
-- Python 3.7 or higher installed
+- Basic command-line skills
+- A Discord account and server with admin privileges
+- Python 3.7+ installed
+
+### Recommended Hosting Providers
+
+For self-hosting, we recommend these providers:
+
+#### AWS EC2 (Free Tier Available)
+- **Why**: Free tier includes a t2.micro instance (1 vCPU, 1 GB RAM) for 12 months.
+- **Setup Guide**:
+  1. Sign up at [aws.amazon.com](https://aws.amazon.com).
+  2. Navigate to EC2 > "Launch Instance."
+  3. Choose "Ubuntu Server 22.04 LTS" (free tier eligible).
+  4. Select "t2.micro" instance type > Launch.
+  5. Download the `.pem` key file and connect via SSH:
+     ```bash
+     ssh -i your-key.pem ubuntu@your-ec2-public-ip
+     ```
+  6. Install dependencies (Python, Git, etc.) after connecting.
+
+#### DigitalOcean
+- **Why**: Affordable droplets starting at $4/month, reliable performance.
+- **Setup Guide**:
+  1. Sign up at [digitalocean.com](https://www.digitalocean.com).
+  2. Create a Droplet: Choose "Ubuntu 22.04" and the $4/month plan (512 MB RAM).
+  3. Copy the Droplet’s IP address.
+  4. Connect via SSH:
+     ```bash
+     ssh root@your-droplet-ip
+     ```
+  5. Set up your environment with Python and Git.
+
+Both providers support the steps below—use their SSH instructions to access your server.
 
 ### Migration Steps
 
-#### Step 1: Get Your Character Data
+#### Step 1: Export Your Character Data
 
-First, you need to export your character data from shapes.inc:
+To migrate from shapes.inc:
 
-1. **Get your main character data (shapes.json)**:
-
+1. **Get main character data (shapes.json)**:
    ```
    https://shapes.inc/api/shapes/username/(YOUR_SHAPE_NAME)
    ```
+   Replace `(YOUR_SHAPE_NAME)` with your character’s name.
 
-   Replace `(YOUR_SHAPE_NAME)` with your character's name from the config command.
-
-2. **Get your character's knowledge data (brain.json)**:
-
+2. **Get knowledge data (brain.json)**:
    ```
    https://shapes.inc/api/shapes/(YOUR_SHAPE_UNIQUE_ID)/story
    ```
+   Find the unique ID in:
+   - The URL: `https://shapes.inc/YOUR_SHAPE_NAME/readme`
+   - Or `shapes.json` under `free_will_v2_ff`.
 
-   To find your shape's unique ID, either:
-
-   - Look at your character's URL on shapes.inc: `https://shapes.inc/YOUR_SHAPE_NAME/readme`
-   - Or check inside your shapes.json file for the ID under `free_will_v2_ff` (use Ctrl+F to find it)
-
-3. **Save both files**:
-   - Right-click each page and select "Save as..." or press Ctrl+S
-   - Save them as `shapes.json` and `brain.json` respectively
-   - Make sure you're logged into shapes.inc when accessing these URLs
+3. **Save files**:
+   - Right-click each URL > "Save as..." (or Ctrl+S).
+   - Name them `shapes.json` and `brain.json`.
+   - Ensure you’re logged into shapes.inc.
 
 #### Step 2: Set Up Your Discord Bot
 
-1. **Create a new Discord application**:
-
-   - Go to [Discord Developer Portal](https://discord.com/developers/applications)
-   - Click "New Application" and give it a name
-   - Go to the "Bot" tab and click "Add Bot"
-   - Under "Privileged Gateway Intents", enable all intents
-   - Scroll down and disable "Public Bot" if you want to keep it private
+1. **Create a Discord application**:
+   - Visit [Discord Developer Portal](https://discord.com/developers/applications).
+   - Click "New Application" > Name it > "Bot" tab > "Add Bot."
+   - Enable all "Privileged Gateway Intents."
+   - Disable "Public Bot" for privacy.
 
 2. **Get your bot token**:
+   - In the "Bot" tab, click "Reset Token" > Copy it securely.
 
-   - Click "Reset Token" and copy the new token
-   - Keep this token secure - it gives full access to your bot!
-
-3. **Invite the bot to your server**:
-   - Go to the "OAuth2" tab, then "URL Generator"
-   - Select "bot" under scopes
-   - Select the following permissions:
+3. **Invite the bot**:
+   - Go to "OAuth2" > "URL Generator."
+   - Select "bot" scope and permissions:
      - Read Messages/View Channels
      - Send Messages
      - Manage Messages
@@ -94,54 +115,43 @@ First, you need to export your character data from shapes.inc:
      - Attach Files
      - Read Message History
      - Add Reactions
-   - Copy the generated URL and open it in your browser
-   - Select your server and authorize the bot
+   - Open the generated URL > Authorize to your server.
 
 #### Step 3: Run the Migration Parser
 
-1. **Place your files in the correct directory**:
-
-   - Put your `shapes.json` and `brain.json` files in the `openshapes/selfhost` directory
-   - The parser.py is already included in this directory
+1. **Organize files**:
+   - Place `shapes.json` and `brain.json` in `openshapes/selfhost`.
 
 2. **Run the parser**:
-
    ```bash
    python3 parser.py
    ```
 
-3. **Follow the prompts**:
+3. **Follow prompts**:
+   - Enter file paths (or press Enter for defaults).
+   - Choose an output directory (or use current).
 
-   - Enter the path to your `shapes.json` file (or press Enter to use the one in the current directory)
-   - Enter the path to your `brain.json` file (or press Enter to use the one in the current directory)
-   - Choose an output directory (or press Enter for current directory)
-
-4. **Check the output**:
-   The script will create:
-   - `character_config.json` in your output directory
-   - A `character_data` folder containing `memory.json` and `lorebook.json`
+4. **Verify output**:
+   - `character_config.json`
+   - `character_data` folder with `memory.json` and `lorebook.json`.
 
 #### Step 4: Configure and Start Your Bot
 
-1. **Edit character_config.json**:
+1. **Edit `character_config.json`**:
+   - Add your bot token to `"bot_token"`.
+   - Adjust settings as desired.
 
-   - Add your Discord bot token to the `"bot_token"` field
-   - Customize any other settings as needed
-
-2. **Install the OpenShapes bot**:
-
+2. **Install OpenShapes**:
    ```bash
    git clone https://github.com/zukijourney/openshapes.git
    cd openshapes/selfhost
    pip install -r requirements.txt
    ```
 
-3. **Copy your configuration files**:
+3. **Copy files**:
+   - Move `character_config.json` and `character_data` to the main directory.
 
-   - Copy the generated `character_config.json` to the main directory
-   - Copy the `character_data` folder to the main directory
-
-4. **Start the bot**:
+4. **Launch the bot**:
    ```bash
    python3 bot.py
    ```
@@ -149,67 +159,60 @@ First, you need to export your character data from shapes.inc:
 #### Step 5: Configure AI API Settings
 
 1. **Set up your AI provider**:
-   Use the `/api_settings` command in your Discord server to configure which AI provider to use:
+   - In Discord, use `/api_settings` to select a provider (e.g., OpenAI, Anthropic, Zukijourney).
+   - Input your API key and preferred model.
 
-   - Choose from supported providers like OpenAI, Anthropic, ZukiAI, etc.
-   - Enter your API key
-   - Select the model you want to use
-
-2. **Test your character**:
-   - Use `/character_info` to verify your character is set up correctly
-   - Send a message in an activated channel or mention your bot to start chatting!
+2. **Test it**:
+   - Run `/character_info` to confirm setup.
+   - Chat by mentioning the bot or messaging in an active channel.
 
 ### Troubleshooting
 
-- **Bot not responding?** Check that your bot token is correct and all intents are enabled
-- **API errors?** Verify your API key is valid and has sufficient credits
-- **Command not found?** Ensure you're using the correct command prefix (default is `/`)
+- **Bot offline?** Verify token and intents.
+- **API issues?** Check key validity and credits.
+- **Commands fail?** Confirm prefix (default: `/`).
 
 ### Advanced Configuration
 
-- Edit the `character_config.json` file to customize behavior settings
-- Use the `/edit_personality_traits` command to modify your character's traits
-- Use the `/edit_backstory` command to change your character's history
-- Use the `/regex` command to manage text pattern matching
+- Tweak `character_config.json` for behavior.
+- Use `/edit_personality_traits`, `/edit_backstory`, or `/regex` for customization.
 
 ## Default API Settings
 
-By default, the configuration uses ZukiJourney's API:
+OpenShapes defaults to Zukijourney’s API:
 
 ```json
 "api_settings": {
   "base_url": "https://api.zukijourney.com/v1",
-  "api_key": "zu-myballs",
+  "api_key": "zu-your-key-here",
   "chat_model": "llama-3.1-8b-instruct",
   "tts_model": "speechify",
   "tts_voice": "mrbeast"
 }
 ```
 
-Since the OpenShapes project originated from the ZukiJourney community (https://zukijourney.com), their API is set as the default, but you're encouraged to:
-
-- Use any AI API provider of your choice
-- Look for free or affordable options on [CAS ZukiJourney](https://cas.zukijourney.com)
+Originating from the Zukijourney community ([zukijourney.com](https://zukijourney.com)), this is the default, but you can:
+- Switch to any AI API provider.
+- Explore free/affordable options at [CAS by Zukijourney](https://cas.zukijourney.com).
 
 ## Community and Support
 
-- Join our Discord community: [https://discord.gg/8QSYftf48j](https://discord.gg/8QSYftf48j)
-- GitHub repository: [https://github.com/zukijourney/openshapes](https://github.com/zukijourney/openshapes)
+- Discord: [https://discord.gg/8QSYftf48j](https://discord.gg/8QSYftf48j)
+- GitHub: [https://github.com/zukijourney/openshapes](https://github.com/zukijourney/openshapes)
 
 ## Contributing
 
-OpenShapes is a community project, and we welcome contributions! Whether you're fixing bugs, adding features, or improving documentation, please check out our contribution guidelines.
+We welcome contributions! See our guidelines on GitHub.
 
 ## License
 
-This project is licensed under the AGPLv3 License - see the LICENSE file for details.
+Licensed under AGPLv3—see the LICENSE file.
 
 ## Acknowledgments
 
-- Thanks to the ZukiJourney community for the inspiration and support
-- Thanks to the AI character community for feedback
-- Special thanks to all contributors who make this project possible
+- Gratitude to the Zukijourney community.
+- Thanks to the AI character community and all contributors.
 
 ---
 
-_OpenShapes is not affiliated with shapes.inc or any other proprietary AI character platform._
+*OpenShapes is not affiliated with shapes.inc or any proprietary AI platform. This is a purely fan-made repository*
