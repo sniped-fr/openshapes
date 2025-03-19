@@ -13,6 +13,7 @@ import aiohttp
 from discord.ext import tasks
 from helpers.regex_extension import *
 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("openshape")
@@ -327,7 +328,6 @@ class OpenShape(commands.Bot):
                 callback=self.sleep_command,
             ),
         )
-        
         # Regex command
         self.tree.add_command(
             app_commands.Command(
@@ -336,7 +336,6 @@ class OpenShape(commands.Bot):
                 callback=self.regex_command,
             )
         )
-        
         # Configuration commands (owner only)
         for guild_id in self.character_config.get("allowed_guilds", []):
             guild = discord.Object(id=guild_id)
@@ -766,7 +765,8 @@ class OpenShape(commands.Bot):
         except Exception as e:
             logger.error(f"Error in sleep memory extraction: {e}")
             return 0
-        
+
+          
     async def memory_command(self, interaction: discord.Interaction):
         """View or manage memories with source attribution"""
         # Only allow the owner to manage memories
