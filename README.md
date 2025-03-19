@@ -107,7 +107,7 @@ First, you need to export your character data from shapes.inc:
 2. **Run the parser**:
 
    ```bash
-   python parser.py
+   python3 parser.py
    ```
 
 3. **Follow the prompts**:
@@ -143,7 +143,7 @@ First, you need to export your character data from shapes.inc:
 
 4. **Start the bot**:
    ```bash
-   python bot.py
+   python3 bot.py
    ```
 
 #### Step 5: Configure AI API Settings

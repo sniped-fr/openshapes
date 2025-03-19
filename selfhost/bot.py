@@ -17,6 +17,9 @@ from helpers.openshape_helpers import setup_openshape_helpers
 from helpers.cleanup_helpers import setup_cleanup
 from helpers.config_manager import setup_config_manager
 
+# Import memory manager
+from vectordb.chroma_integration import setup_memory_system, MemoryCommand, SleepCommand
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("openshape")
@@ -116,6 +119,13 @@ class OpenShape(commands.Bot):
         # Initialize helper modules
         self.config_manager = setup_config_manager(self, config_path)
         self.helpers = setup_openshape_helpers(self)
+        
+        
+        # Set up the ChromaDB memory system
+        # You can customize the shared database path here
+        shared_db_path = os.path.join(os.getcwd(), "shared_memory")
+        self.memory_manager = setup_memory_system(self, shared_db_path)
+        
         self.regex_manager = RegexManager(self)
         
         # Initialize storage for conversations
@@ -487,107 +497,11 @@ class OpenShape(commands.Bot):
         
     async def sleep_command(self, interaction: discord.Interaction):
         """Process recent messages to extract and store memories before going to sleep"""
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                "Only the bot owner can use this command", ephemeral=True
-            )
-            return
-        
-        await interaction.response.defer(thinking=True)
-        
-        # First, acknowledge the command
-        await interaction.followup.send(f"{self.character_name} is analyzing recent conversations and going to sleep...")
-        
-        try:
-            # Fetch recent messages from the channel (up to 30)
-            recent_messages = []
-            async for message in interaction.channel.history(limit=30):
-                # Skip system messages and bot's own messages
-                if message.author.bot and message.author.id != self.user.id:
-                    continue
-                
-                # Add message to our list
-                recent_messages.append({
-                    "author": message.author.display_name,
-                    "content": message.content,
-                    "id": message.id,
-                    "timestamp": message.created_at.isoformat()
-                })
-            
-            # Sort messages by timestamp (oldest first)
-            recent_messages.sort(key=lambda m: m["timestamp"])
-            
-            # We don't want to process all messages individually as that would be inefficient
-            # Instead, we'll batch them in small conversations
-            
-            # First, let's group messages by author over short time spans
-            batched_conversations = []
-            current_batch = []
-            last_author = None
-            
-            for msg in recent_messages:
-                # If this is a new author or the batch is getting too big, start a new batch
-                if last_author != msg["author"] or len(current_batch) >= 5:
-                    if current_batch:
-                        batched_conversations.append(current_batch)
-                    current_batch = [msg]
-                else:
-                    current_batch.append(msg)
-                
-                last_author = msg["author"]
-            
-            # Add the final batch if it exists
-            if current_batch:
-                batched_conversations.append(current_batch)
-            
-            # Now process each batch to extract memories
-            memories_created = 0
-            
-            for batch in batched_conversations:
-                # Skip if this is just the bot talking
-                if all(msg["author"] == self.character_name for msg in batch):
-                    continue
-                
-                # Construct a conversation to analyze
-                conversation_content = ""
-                for msg in batch:
-                    conversation_content += f"{msg['author']}: {msg['content']}\n"
-                
-                # Check if this conversation has substance (more than just a greeting or short message)
-                if len(conversation_content.split()) < 10:
-                    continue
-                
-                # Extract memories from this conversation batch
-                created = await self.memory_manager.extract_memories_from_text(conversation_content)
-                memories_created += created
-                
-                # Throttle requests to avoid rate limits
-                await asyncio.sleep(0.5)
-            
-            # Send a summary of what happened
-            if memories_created > 0:
-                response = f"{self.character_name} has processed the recent conversations and created {memories_created} new memories!"
-            else:
-                response = f"{self.character_name} analyzed the conversations but didn't find any significant information to remember."
-                
-            await interaction.channel.send(response)
-            
-        except Exception as e:
-            logger.error(f"Error during sleep command: {e}")
-            await interaction.channel.send(f"Something went wrong while processing recent messages: {str(e)[:100]}...")
+        await SleepCommand.execute(self, interaction)
           
     async def memory_command(self, interaction: discord.Interaction):
         """View or manage memories with source attribution"""
-        # Only allow the owner to manage memories
-        if interaction.user.id != self.owner_id:
-            memory_display = self.memory_manager.format_memories_for_display()
-            await interaction.response.send_message(memory_display)
-            return
-
-        # Create a view for memory management
-        view = MemoryManagementView(self)
-        memory_display = self.memory_manager.format_memories_for_display()
-        await interaction.response.send_message(memory_display, view=view)
+        await MemoryCommand.execute(self, interaction)
 
     async def api_settings_command(self, interaction: discord.Interaction):
         """Configure AI API settings"""
@@ -1122,7 +1036,7 @@ class OpenShape(commands.Bot):
                     channel_history = channel_history[-8:]
 
                 # Update memory if there's something important to remember
-                await self.memory_manager.update_memory_from_conversation(
+                await self.update_memory_from_conversation(
                     message.author.display_name, clean_content, response
                 )
 
@@ -1512,7 +1426,7 @@ class OpenShape(commands.Bot):
                 
         elif command == "memory" or command == "wack":
             if args.lower() == "show":
-                memory_display = self.memory_manager.format_memories_for_display()
+                memory_display = self.format_memories_for_display()
                 await message.reply(memory_display)
             elif args.lower().startswith("search ") and len(parts) > 2:
                 # New command to search memories based on keywords
