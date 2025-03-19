@@ -116,7 +116,6 @@ class OpenShape(commands.Bot):
         # Initialize helper modules
         self.config_manager = setup_config_manager(self, config_path)
         self.helpers = setup_openshape_helpers(self)
-        self.cleanup = setup_cleanup(self)
         self.regex_manager = RegexManager(self)
         
         # Initialize storage for conversations
@@ -991,6 +990,7 @@ class OpenShape(commands.Bot):
         """Called when the bot is ready"""
         logger.info(f"Logged in as {self.user.name} ({self.user.id})")
         await self.tree.sync()
+        self.cleanup = setup_cleanup(self)
         logger.info(f"Character name: {self.character_name}")
 
     async def on_message(self, message: discord.Message):
