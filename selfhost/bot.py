@@ -1142,7 +1142,7 @@ class SimpleCharacterBot(commands.Bot):
         command = parts[0].lower() if parts else ""
         args = parts[1] if len(parts) > 1 else ""
 
-        if command == "memory":
+        if command == "memory" or command == "wack":
             if args.lower() == "show":
                 memory_display = "**Long-term Memory:**\n"
                 if not self.long_term_memory:
@@ -1172,7 +1172,7 @@ class SimpleCharacterBot(commands.Bot):
                     await message.reply(f"Removed memory: {topic}")
                 else:
                     await message.reply(f"Memory topic '{topic}' not found.")
-            elif args.lower() == "clear":
+            elif args.lower() == "clear" or command == "wack":
                 self.long_term_memory = {}
                 self._save_memory()
                 await message.reply("All memories cleared.")
