@@ -461,7 +461,8 @@ class MemoryCommand:
                             
                         async def edit_callback(button_interaction):
                             try:
-                                results = self.bot.memory_manager.collection.get()
+                                collection = self.bot.memory_manager.get_collection_for_guild(guild_id)
+                                results = collection.get()
                                 
                                 if not results or not results['metadatas'] or len(results['metadatas']) == 0:
                                     await button_interaction.response.send_message("No memories available to edit.", ephemeral=True)
