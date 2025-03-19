@@ -24,7 +24,7 @@ Run your AI characters on your own infrastructure for complete control and flexi
 ### Option 2: Managed Service (Coming Soon)
 
 Create and manage AI characters via our user-friendly platform—no technical setup required.  
-*Stay tuned for updates!*
+_Stay tuned for updates!_
 
 ---
 
@@ -43,6 +43,7 @@ This guide walks you through setting up a self-hosted OpenShapes instance, wheth
 For self-hosting, we recommend these providers:
 
 #### AWS EC2 (Free Tier Available)
+
 - **Why**: Free tier includes a t2.micro instance (1 vCPU, 1 GB RAM) for 12 months.
 - **Setup Guide**:
   1. Sign up at [aws.amazon.com](https://aws.amazon.com).
@@ -56,6 +57,7 @@ For self-hosting, we recommend these providers:
   6. Install dependencies (Python, Git, etc.) after connecting.
 
 #### DigitalOcean
+
 - **Why**: Affordable droplets starting at $4/month, reliable performance.
 - **Setup Guide**:
   1. Sign up at [digitalocean.com](https://www.digitalocean.com).
@@ -76,16 +78,21 @@ Both providers support the steps below—use their SSH instructions to access yo
 To migrate from shapes.inc:
 
 1. **Get main character data (shapes.json)**:
+
    ```
    https://shapes.inc/api/shapes/username/(YOUR_SHAPE_NAME)
    ```
+
    Replace `(YOUR_SHAPE_NAME)` with your character’s name.
 
 2. **Get knowledge data (brain.json)**:
+
    ```
    https://shapes.inc/api/shapes/(YOUR_SHAPE_UNIQUE_ID)/story
    ```
+
    Find the unique ID in:
+
    - The URL: `https://shapes.inc/YOUR_SHAPE_NAME/readme`
    - Or `shapes.json` under `free_will_v2_ff`.
 
@@ -97,12 +104,14 @@ To migrate from shapes.inc:
 #### Step 2: Set Up Your Discord Bot
 
 1. **Create a Discord application**:
+
    - Visit [Discord Developer Portal](https://discord.com/developers/applications).
    - Click "New Application" > Name it > "Bot" tab > "Add Bot."
    - Enable all "Privileged Gateway Intents."
    - Disable "Public Bot" for privacy.
 
 2. **Get your bot token**:
+
    - In the "Bot" tab, click "Reset Token" > Copy it securely.
 
 3. **Invite the bot**:
@@ -120,14 +129,17 @@ To migrate from shapes.inc:
 #### Step 3: Run the Migration Parser
 
 1. **Organize files**:
+
    - Place `shapes.json` and `brain.json` in `openshapes/selfhost`.
 
 2. **Run the parser**:
+
    ```bash
    python3 parser.py
    ```
 
 3. **Follow prompts**:
+
    - Enter file paths (or press Enter for defaults).
    - Choose an output directory (or use current).
 
@@ -138,10 +150,12 @@ To migrate from shapes.inc:
 #### Step 4: Configure and Start Your Bot
 
 1. **Edit `character_config.json`**:
+
    - Add your bot token to `"bot_token"`.
    - Adjust settings as desired.
 
 2. **Install OpenShapes**:
+
    ```bash
    git clone https://github.com/zukijourney/openshapes.git
    cd openshapes/selfhost
@@ -149,6 +163,7 @@ To migrate from shapes.inc:
    ```
 
 3. **Copy files**:
+
    - Move `character_config.json` and `character_data` to the main directory.
 
 4. **Launch the bot**:
@@ -159,6 +174,7 @@ To migrate from shapes.inc:
 #### Step 5: Configure AI API Settings
 
 1. **Set up your AI provider**:
+
    - In Discord, use `/api_settings` to select a provider (e.g., OpenAI, Anthropic, Zukijourney).
    - Input your API key and preferred model.
 
@@ -192,6 +208,7 @@ OpenShapes defaults to Zukijourney’s API:
 ```
 
 Originating from the Zukijourney community ([zukijourney.com](https://zukijourney.com)), this is the default, but you can:
+
 - Switch to any AI API provider.
 - Explore free/affordable options at [CAS by Zukijourney](https://cas.zukijourney.com).
 
@@ -215,4 +232,4 @@ Licensed under AGPLv3—see the LICENSE file.
 
 ---
 
-*OpenShapes is not affiliated with shapes.inc or any proprietary AI platform. This is a purely fan-made repository*
+_OpenShapes is not affiliated with shapes.inc or any proprietary AI platform. This is a purely fan-made repository_
