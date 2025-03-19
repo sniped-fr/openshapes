@@ -7,7 +7,7 @@ import re
 import os
 import datetime
 from typing import Dict, List, Optional, Any
-from openai import OpenAI
+from openai import AsyncOpenAI
 import asyncio
 import aiohttp
 import io
@@ -62,7 +62,7 @@ class SimpleCharacterBot(commands.Bot):
         self.ai_client = None
         if self.api_key and self.base_url:
             try:
-                self.ai_client = OpenAI(
+                self.ai_client = AsyncOpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
                     max_retries=2,
@@ -459,7 +459,7 @@ class SimpleCharacterBot(commands.Bot):
                     # Reinitialize OpenAI client if base URL and API key are set
                     if self.api_key and self.base_url:
                         try:
-                            self.ai_client = OpenAI(
+                            self.ai_client = AsyncOpenAI(
                                 api_key=self.api_key,
                                 base_url=self.base_url,
                                 max_retries=2,
@@ -540,7 +540,7 @@ class SimpleCharacterBot(commands.Bot):
                 messages.append({"role": "user", "content": user_message})
 
             # Call API
-            completion = self.ai_client.chat.completions.create(
+            completion = await self.ai_client.chat.completions.create(
                 model=self.chat_model,
                 messages=messages,
                 stream=False,
@@ -609,7 +609,7 @@ class SimpleCharacterBot(commands.Bot):
                 return filepath
 
             # Call TTS API
-            response = self.ai_client.audio.speech.create(
+            response = await self.ai_client.audio.speech.create(
                 model=self.tts_model, voice=self.tts_voice, input=speech_text
             )
 
@@ -1039,9 +1039,233 @@ class SimpleCharacterBot(commands.Bot):
                         logger.error(f"Error playing TTS audio: {e}")
                 else:
                     # Send the response in text form
-                    sent_message = await message.reply(formatted_response)
-                    await sent_message.add_reaction("🗑️")       
+                    sent_message, message_group = await self._send_long_message(
+                        message.channel,
+                        formatted_response,
+                        reference=message,
+                        reply=True
+                    )
 
+                    # Add reactions only to the primary message
+                    await sent_message.add_reaction("🗑️")
+                    await sent_message.add_reaction("♻️")
+
+                    # Store context for regeneration
+                    if not hasattr(self, "message_contexts"):
+                        self.message_contexts = {}
+
+                    # Save the context needed for regeneration - save it for all message parts
+                    primary_id = message_group["primary_id"]
+                    if primary_id:
+                        self.message_contexts[primary_id] = {
+                            "user_name": message.author.display_name,
+                            "user_message": clean_content,
+                            "channel_history": channel_history[:-1],  # Don't include the bot's response
+                            "relevant_lore": relevant_lore,
+                            "original_message": message.id  # Store original message ID for reply
+                        }
+
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
+        """Handle reactions to messages with improved recycling emoji behavior"""
+        # Ignore bot's own reaction adds
+        if user.id == self.user.id:
+            return
+            
+        # Get message ID to check if it's part of a multipart message
+        message_id = reaction.message.id
+        message_group = None
+        
+        # Check if this message is part of a multipart message group
+        if hasattr(self, "multipart_messages") and message_id in self.multipart_messages:
+            message_group = self.multipart_messages[message_id]
+        
+        # If the reaction is the trash emoji on the bot's message
+        if (
+            reaction.emoji == "🗑️"
+            and reaction.message.author == self.user
+            and (
+                user.id == self.owner_id
+                or (
+                    hasattr(reaction.message, "reference")
+                    and reaction.message.reference
+                    and reaction.message.reference.resolved
+                    and user.id == reaction.message.reference.resolved.author.id
+                )
+            )
+        ):
+            # If it's a multipart message, delete all parts
+            if message_group and message_group["is_multipart"]:
+                for msg_id in message_group["message_ids"]:
+                    try:
+                        # Try to fetch and delete each message
+                        msg = await reaction.message.channel.fetch_message(msg_id)
+                        await msg.delete()
+                    except (discord.NotFound, discord.HTTPException):
+                        # Message may already be deleted or not found
+                        continue
+                        
+                # Clean up the multipart_messages entries
+                for msg_id in message_group["message_ids"]:
+                    if msg_id in self.multipart_messages:
+                        del self.multipart_messages[msg_id]
+            else:
+                # Single message, just delete it
+                await reaction.message.delete()
+            
+        # If the reaction is the recycle emoji (♻️) on the bot's message
+        elif (
+            reaction.emoji == "♻️"
+            and reaction.message.author == self.user
+        ):
+            # Only allow if:
+            # 1. User is the original message author (the one the bot replied to)
+            # 2. Message doesn't have a "regenerated" flag
+            is_original_author = (
+                hasattr(reaction.message, "reference")
+                and reaction.message.reference
+                and reaction.message.reference.resolved
+                and user.id == reaction.message.reference.resolved.author.id
+            )
+            
+            # Check for regeneration flag (added as a reaction by the bot)
+            already_regenerated = any(r.emoji == "🔄" and r.me for r in reaction.message.reactions)
+            
+            if is_original_author and not already_regenerated:
+                # Determine which message ID to use for context lookup
+                context_message_id = message_id
+                if message_group and message_group["primary_id"]:
+                    context_message_id = message_group["primary_id"]
+                    
+                # Check if we have the context stored for regeneration
+                if hasattr(self, "message_contexts") and context_message_id in self.message_contexts:
+                    context = self.message_contexts[context_message_id]
+                    
+                    # Show typing indicator
+                    async with reaction.message.channel.typing():
+                        # Get a new response
+                        new_response = await self._generate_response(
+                            context["user_name"],
+                            context["user_message"],
+                            context["channel_history"],
+                            context["relevant_lore"]
+                        )
+                        
+                        # Format response with name if enabled
+                        formatted_response = (
+                            f"**{self.character_name}**: {new_response}"
+                            if self.add_character_name
+                            else new_response
+                        )
+                        
+                        # Handle multipart messages differently
+                        if message_group and message_group["is_multipart"]:
+                            # Delete all the old messages first
+                            for msg_id in message_group["message_ids"]:
+                                try:
+                                    msg = await reaction.message.channel.fetch_message(msg_id)
+                                    await msg.delete()
+                                except (discord.NotFound, discord.HTTPException):
+                                    continue
+                            
+                            # Get the original message
+                            try:
+                                original_message = await reaction.message.channel.fetch_message(context["original_message"])
+                                
+                                # Send the new response as a new multipart message
+                                primary_message, new_message_group = await self._send_long_message(
+                                    reaction.message.channel, 
+                                    formatted_response,
+                                    reference=original_message
+                                )
+                                
+                                # Add reaction to just the primary message
+                                await primary_message.add_reaction("🗑️")
+                                await primary_message.add_reaction("🔄")  # Mark as already regenerated
+                                
+                                # Update the context for the new primary message
+                                self.message_contexts[primary_message.id] = context
+                                
+                                # Clean up old context entries
+                                for old_id in message_group["message_ids"]:
+                                    if old_id in self.message_contexts:
+                                        del self.message_contexts[old_id]
+                            except (discord.NotFound, discord.HTTPException):
+                                # If original message is gone, just send as new message
+                                primary_message, new_message_group = await self._send_long_message(
+                                    reaction.message.channel, 
+                                    formatted_response
+                                )
+                                await primary_message.add_reaction("🗑️")
+                                await primary_message.add_reaction("🔄")
+                        else:
+                            # Single message - try to edit, fall back to delete and resend
+                            try:
+                                # First attempt to edit the existing message
+                                await reaction.message.edit(content=formatted_response)
+                                edited_message = reaction.message
+                                
+                                # Add a "regenerated" flag reaction to prevent further regeneration
+                                await edited_message.add_reaction("🔄")
+                                
+                            except discord.HTTPException:
+                                # If editing fails (e.g., too old message), delete and send new one
+                                await reaction.message.delete()
+                                
+                                # Get the original message
+                                try:
+                                    original_message = await reaction.message.channel.fetch_message(context["original_message"])
+                                    
+                                    # Send the new response, potentially splitting if too long
+                                    primary_message, new_message_group = await self._send_long_message(
+                                        reaction.message.channel, 
+                                        formatted_response,
+                                        reference=original_message
+                                    )
+                                    
+                                    # Add reactions to new message
+                                    await primary_message.add_reaction("🗑️")
+                                    await primary_message.add_reaction("🔄")  # Mark as already regenerated
+                                    
+                                    # Update the context for the new message
+                                    self.message_contexts[primary_message.id] = context
+                                    
+                                    # Clean up old context
+                                    if message_id in self.message_contexts:
+                                        del self.message_contexts[message_id]
+                                except (discord.NotFound, discord.HTTPException):
+                                    # Couldn't find original message, just send as a new message
+                                    primary_message, new_message_group = await self._send_long_message(
+                                        reaction.message.channel, 
+                                        formatted_response
+                                    )
+                                    await primary_message.add_reaction("🗑️")
+                        
+                        # Update conversation history with the new response
+                        channel_history = self._get_channel_conversation(reaction.message.channel.id)
+                        
+                        # Replace the last bot response or add this one
+                        if channel_history and channel_history[-1]["role"] == "assistant":
+                            channel_history[-1] = {
+                                "role": "assistant",
+                                "name": self.character_name,
+                                "content": new_response,
+                                "timestamp": datetime.datetime.now().isoformat(),
+                            }
+                        else:
+                            channel_history.append({
+                                "role": "assistant",
+                                "name": self.character_name,
+                                "content": new_response,
+                                "timestamp": datetime.datetime.now().isoformat(),
+                            })
+                        
+                        # Save the updated conversation
+                        self._save_conversation(reaction.message.channel.id, channel_history)
+                        
+                        # Check if we need to update memory from the regenerated response
+                        await self._update_memory_from_conversation(
+                            context["user_name"], context["user_message"], new_response
+                        )
     async def _generate_temp_tts(self, text):
         """Generate a temporary TTS audio file from text"""
         if (
@@ -1063,7 +1287,7 @@ class SimpleCharacterBot(commands.Bot):
             filepath = os.path.join(temp_dir, filename)
 
             # Call TTS API
-            response = self.ai_client.audio.speech.create(
+            response = await self.ai_client.audio.speech.create(
                 model=self.tts_model, voice=self.tts_voice, input=text
             )
 
@@ -1074,7 +1298,109 @@ class SimpleCharacterBot(commands.Bot):
         except Exception as e:
             logger.error(f"Error generating TTS: {e}")
             return None
+    
+    async def _send_long_message(self, channel, content, reference=None, reply=True):
+        """
+        Splits long messages into multiple chunks and sends them.
+        Returns the sent message info including all message IDs for tracking.
+        
+        Args:
+            channel: The channel to send the message to
+            content: The message content
+            reference: The message to reply to (if any)
+            reply: Whether to use reply mention (defaults to True)
+        """
+        # Discord message limit is 2000 characters
+        MAX_LENGTH = 2000
+        
+        # Object to track all our messages
+        message_group = {
+            "is_multipart": False,
+            "message_ids": [],
+            "primary_id": None,  # First message ID
+            "content": content    # Store original content for regeneration
+        }
+        
+        # If message is within limits, just send it normally
+        if len(content) <= MAX_LENGTH:
+            if reference:
+                sent_message = await reference.reply(content, mention_author=reply)
+            else:
+                sent_message = await channel.send(content)
+                
+            message_group["message_ids"].append(sent_message.id)
+            message_group["primary_id"] = sent_message.id
+            return sent_message, message_group
+        
+        # Message needs to be split
+        message_group["is_multipart"] = True
+        
+        # Split message into chunks
+        chunks = []
+        current_chunk = ""
+        
+        # Try to split intelligently at paragraph or sentence boundaries
+        paragraphs = content.split('\n\n')
+        
+        for paragraph in paragraphs:
+            # If paragraph itself exceeds limit, split by sentences
+            if len(paragraph) > MAX_LENGTH:
+                sentences = paragraph.replace('. ', '.\n').split('\n')
+                for sentence in sentences:
+                    # If adding this sentence would exceed limit, start new chunk
+                    if len(current_chunk) + len(sentence) + 2 > MAX_LENGTH:
+                        chunks.append(current_chunk)
+                        current_chunk = sentence + '\n\n'
+                    else:
+                        current_chunk += sentence + '\n\n'
+            else:
+                # Check if adding this paragraph would exceed limit
+                if len(current_chunk) + len(paragraph) + 2 > MAX_LENGTH:
+                    chunks.append(current_chunk)
+                    current_chunk = paragraph + '\n\n'
+                else:
+                    current_chunk += paragraph + '\n\n'
+        
+        # Add the final chunk if not empty
+        if current_chunk:
+            chunks.append(current_chunk)
+        
+        # Send all chunks
+        primary_message = None
+        all_messages = []
+        
+        # Mark chunks with continuation indicator
+        chunks = [f"{chunk}\n{'(continued...)' if i < len(chunks) - 1 else ''}" for i, chunk in enumerate(chunks)]
+        
+        for i, chunk in enumerate(chunks):
+            # First chunk is a reply to the original message
+            if i == 0 and reference:
+                sent_message = await reference.reply(chunk, mention_author=reply)
+                primary_message = sent_message
+            else:
+                # Subsequent chunks are regular messages
+                sent_message = await channel.send(chunk)
+            
+            all_messages.append(sent_message)
+            message_group["message_ids"].append(sent_message.id)
+        
+        if primary_message is None and all_messages:
+            primary_message = all_messages[0]
+        
+        message_group["primary_id"] = primary_message.id if primary_message else None
+        
+        # Store all sent messages in a tracking dictionary
+        if not hasattr(self, "multipart_messages"):
+            self.multipart_messages = {}
+        
+        # Associate all sent message IDs with this message group
+        for msg_id in message_group["message_ids"]:
+            self.multipart_messages[msg_id] = message_group
+        
+        return primary_message, message_group
 
+    
+    
     async def _update_memory_from_conversation(self, user_name, user_message, bot_response):
         """Extract and store important information from conversations as memories"""
         if not self.ai_client or not self.chat_model:
@@ -1146,23 +1472,6 @@ class SimpleCharacterBot(commands.Bot):
         except Exception as e:
             logger.error(f"Error updating memory from conversation: {e}")
             
-    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
-        """Handle reactions to messages"""
-        # If the reaction is the trash emoji on the bot's message and from message author or bot owner
-        if (
-            reaction.emoji == "🗑️"
-            and reaction.message.author == self.user
-            and (
-                user.id == self.owner_id
-                or (
-                    hasattr(reaction.message, "reference")
-                    and reaction.message.reference
-                    and reaction.message.reference.resolved
-                    and user.id == reaction.message.reference.resolved.author.id
-                )
-            )
-        ):
-            await reaction.message.delete()
 
     async def _handle_ooc_command(self, message: discord.Message):
         """Handle out-of-character commands from the owner"""
