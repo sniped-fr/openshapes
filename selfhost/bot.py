@@ -497,42 +497,46 @@ class SimpleCharacterBot(commands.Bot):
         user_name="User",
         conversation_history=None,
         relevant_lore=None,
+        system_prompt=None,
     ):
-        """Call the AI API to generate a response"""
+        """Call the AI API to generate a response with limited conversation history"""
         if not self.ai_client or not self.chat_model:
             return None
 
         try:
-            # Build system prompt with character info
-            system_content = f"""You are {self.character_name}.
+            # Use provided system prompt or build default one
+            if system_prompt:
+                system_content = system_prompt
+            else:
+                # Build system prompt with character info
+                system_content = f"""You are {self.character_name}.
     Description: {self.character_description}
     Personality: {self.character_personality}
     Scenario: {self.character_scenario}
     """
 
-            # Add any custom system prompt
-            if self.system_prompt:
-                system_content += f"\n{self.system_prompt}"
+                # Add custom system prompt if available
+                if self.system_prompt:
+                    system_content += f"\n{self.system_prompt}"
 
-            # Add relevant lore if available
-            if relevant_lore and len(relevant_lore) > 0:
-                system_content += "\nImportant information you know:\n"
-                for lore in relevant_lore:
-                    system_content += f"- {lore}\n"
+                # Add relevant lore if available
+                if relevant_lore and len(relevant_lore) > 0:
+                    system_content += "\nImportant information you know:\n"
+                    for lore in relevant_lore:
+                        system_content += f"- {lore}\n"
 
             # Prepare messages list
             messages = [{"role": "system", "content": system_content}]
 
-            # Add conversation history (limited to last 10 messages)
+            # Add conversation history (limited to available history, max 8 messages)
             if conversation_history:
-                for entry in conversation_history[-10:]:
+                history_to_use = conversation_history[-8:] if len(conversation_history) > 8 else conversation_history
+                for entry in history_to_use:
                     role = "assistant" if entry["role"] == "assistant" else "user"
                     messages.append({"role": role, "content": entry["content"]})
 
             # If the latest message isn't in history, add it
-            if not conversation_history or user_message != conversation_history[-1].get(
-                "content", ""
-            ):
+            if not conversation_history or user_message != conversation_history[-1].get("content", ""):
                 messages.append({"role": "user", "content": user_message})
 
             # Call API
@@ -549,6 +553,8 @@ class SimpleCharacterBot(commands.Bot):
         except Exception as e:
             logger.error(f"Error calling chat API: {e}")
             return f"I'm having trouble connecting to my thoughts right now. Please try again later. (Error: {str(e)[:50]}...)"
+
+
 
     # Add a method to generate TTS audio
     async def _generate_tts(self, text):
@@ -868,7 +874,6 @@ class SimpleCharacterBot(commands.Bot):
     async def on_message(self, message: discord.Message):
         """Process incoming messages and respond if appropriate"""
         # Ignore own messages
-
         if message.author == self.user:
             return
 
@@ -908,9 +913,9 @@ class SimpleCharacterBot(commands.Bot):
                 # Remove mentions from the message
                 clean_content = re.sub(r"<@!?(\d+)>", "", message.content).strip()
 
-                # Get conversation history for this channel
+                # Get conversation history for this channel (limited to 8 messages)
                 channel_history = self._get_channel_conversation(message.channel.id)
-
+                
                 # Add the new message to history
                 channel_history.append(
                     {
@@ -920,6 +925,10 @@ class SimpleCharacterBot(commands.Bot):
                         "timestamp": datetime.datetime.now().isoformat(),
                     }
                 )
+                
+                # Ensure we maintain the 8 message limit
+                if len(channel_history) > 8:
+                    channel_history = channel_history[-8:]
 
                 # Get relevant lorebook entries
                 relevant_lore = self._get_relevant_lorebook_entries(clean_content)
@@ -941,11 +950,19 @@ class SimpleCharacterBot(commands.Bot):
                         "timestamp": datetime.datetime.now().isoformat(),
                     }
                 )
+                
+                # Again, ensure we maintain the 8 message limit
+                if len(channel_history) > 8:
+                    channel_history = channel_history[-8:]
 
-                # Save conversation periodically (every 10 messages)
-                if len(channel_history) >= 10:
-                    self._save_conversation(message.channel.id, channel_history)
-                    channel_history = []  # Reset after saving
+                # Update memory if there's something important to remember
+                await self._update_memory_from_conversation(
+                    message.author.display_name, clean_content, response
+                )
+
+                # Save conversation periodically
+                # Note: Changed to save every time since we're limiting to 8 messages anyway
+                self._save_conversation(message.channel.id, channel_history)
 
                 # Format response with name if enabled
                 formatted_response = (
@@ -953,40 +970,153 @@ class SimpleCharacterBot(commands.Bot):
                     if self.add_character_name
                     else response
                 )
+                
+                # Generate and send TTS if enabled AND user is in a voice channel
+                if self.use_tts and message.guild and message.author.voice and message.author.voice.channel:
+                    try:
+                        # Generate TTS directly without saving to a permanent file
+                        temp_audio_file = await self._generate_temp_tts(response)
+                        if temp_audio_file:
+                            voice_channel = message.author.voice.channel
 
-                # Send the response and add reaction for deletion
-                if not self.use_tts:
-                    sent_message = await message.reply(formatted_response)
-                    await sent_message.add_reaction("🗑️")
+                            # Connect to voice channel
+                            voice_client = message.guild.voice_client
+                            if voice_client:
+                                if voice_client.channel != voice_channel:
+                                    await voice_client.move_to(voice_channel)
+                            else:
+                                voice_client = await voice_channel.connect()
 
-                # Generate and send TTS if enabled
-                if self.use_tts and message.guild:
-                    audio_file = await self._generate_tts(response)
-                    if audio_file:
-                        try:
-                            # Check if user is in a voice channel
-                            if message.author.voice and message.author.voice.channel:
-                                voice_channel = message.author.voice.channel
-
-                                # Connect to voice channel
-                                voice_client = message.guild.voice_client
-                                if voice_client:
-                                    if voice_client.channel != voice_channel:
-                                        await voice_client.move_to(voice_channel)
-                                else:
-                                    voice_client = await voice_channel.connect()
-
-                                # Play audio
-                                voice_client.play(
-                                    discord.FFmpegPCMAudio(audio_file),
-                                    after=lambda e: asyncio.run_coroutine_threadsafe(
-                                        self._disconnect_after_audio(voice_client),
-                                        self.loop,
-                                    ),
+                            # Play audio and set up cleanup
+                            def after_playing(error):
+                                # Delete the temporary file after it's been played
+                                try:
+                                    os.remove(temp_audio_file)
+                                    logger.info(f"Deleted temporary TTS file: {temp_audio_file}")
+                                except Exception as e:
+                                    logger.error(f"Error deleting temporary TTS file: {e}")
+                                
+                                # Disconnect from voice channel
+                                asyncio.run_coroutine_threadsafe(
+                                    self._disconnect_after_audio(voice_client),
+                                    self.loop,
                                 )
-                        except Exception as e:
-                            logger.error(f"Error playing TTS audio: {e}")
 
+                            voice_client.play(
+                                discord.FFmpegPCMAudio(temp_audio_file),
+                                after=after_playing,
+                            )
+                    except Exception as e:
+                        logger.error(f"Error playing TTS audio: {e}")
+                else:
+                    # Send the response in text form
+                    sent_message = await message.reply(formatted_response)
+                    await sent_message.add_reaction("🗑️")       
+
+    async def _generate_temp_tts(self, text):
+        """Generate a temporary TTS audio file from text"""
+        if (
+            not self.ai_client
+            or not self.tts_model
+            or not self.tts_voice
+            or not self.use_tts
+        ):
+            return None
+
+        try:
+            # Create a temporary directory if it doesn't exist
+            temp_dir = os.path.join(self.data_dir, "temp_audio")
+            os.makedirs(temp_dir, exist_ok=True)
+
+            # Generate a filename based on timestamp for uniqueness
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            filename = f"{self.character_name}_{timestamp}.mp3"
+            filepath = os.path.join(temp_dir, filename)
+
+            # Call TTS API
+            response = self.ai_client.audio.speech.create(
+                model=self.tts_model, voice=self.tts_voice, input=text
+            )
+
+            # Save audio to temporary file
+            response.stream_to_file(filepath)
+            return filepath
+
+        except Exception as e:
+            logger.error(f"Error generating TTS: {e}")
+            return None
+
+    async def _update_memory_from_conversation(self, user_name, user_message, bot_response):
+        """Extract and store important information from conversations as memories"""
+        if not self.ai_client or not self.chat_model:
+            return
+            
+        try:
+            # Create an improved system prompt that gives clearer instructions for memory extraction
+            system_prompt = """You are an AI designed to extract meaningful information from conversations that would be valuable to remember for future interactions.
+
+        Instructions:
+        1. Analyze the conversation between the user and the AI.
+        2. Identify any significant information about the user such as:
+        - Personal preferences (likes, dislikes)
+        - Background information (job, location, family)
+        - Important events (past or planned)
+        - Goals or needs they've expressed
+        - Problems they're facing
+
+        3. If you find something worth remembering, output a JSON object with a single key-value pair:
+        - Key: A short, descriptive topic name (e.g., "User's Job", "Birthday Plans", "Preferred Music")
+        - Value: A concise factual statement summarizing what to remember
+
+        4. If nothing significant was shared, return an empty JSON object: {}
+
+        Examples:
+        - User saying "I've been learning to play guitar for 3 months now" → {"Music Interest": "User has been learning guitar for 3 months"}
+        - User saying "I have an interview tomorrow at 9am" → {"Job Interview": "User has an interview scheduled tomorrow at 9am"}
+
+        Only extract specific, factual information (not vague impressions), and focus on details about the user, not general topics.
+        Your output should be ONLY a valid JSON object with no additional text.
+        """
+            
+            # Construct the conversation content to analyze
+            conversation_content = f"User {user_name}: {user_message}\nAI: {bot_response}"
+            
+            # Call API to analyze conversation
+            memory_analysis = await self._call_chat_api(
+                conversation_content,
+                system_prompt=system_prompt
+            )
+            
+            # Process the response to extract memory information
+            try:
+                # Look for JSON in the response (in case there's any non-JSON text)
+                import re
+                json_match = re.search(r'\{.*\}', memory_analysis, re.DOTALL)
+                
+                if json_match:
+                    memory_json = json_match.group(0)
+                    memory_data = json.loads(memory_json)
+                    
+                    # Update memory with extracted information
+                    for topic, detail in memory_data.items():
+                        if topic and detail:  # Make sure they're not empty
+                            # Keep only meaningful memories (more than 3 chars)
+                            if len(detail) > 3:
+                                self.long_term_memory[topic] = detail
+                                logger.info(f"Added memory: {topic}: {detail}")
+                    
+                    # Save memory if anything was added
+                    if memory_data:
+                        self._save_memory()
+                else:
+                    logger.info("No memory-worthy information found in conversation")
+                    
+            except (json.JSONDecodeError, AttributeError) as e:
+                logger.warning(f"Failed to parse memory response: {memory_analysis}. Error: {str(e)}")
+                
+        except Exception as e:
+            logger.error(f"Error updating memory from conversation: {e}")
+            
     async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
         """Handle reactions to messages"""
         # If the reaction is the trash emoji on the bot's message and from message author or bot owner
@@ -1143,15 +1273,19 @@ class SimpleCharacterBot(commands.Bot):
             await message.reply(help_text)
 
     def _get_channel_conversation(self, channel_id: int) -> List[Dict]:
-        """Get conversation history for a specific channel"""
-        # This would normally load from a database or file
-        # For simplicity, we'll just maintain in-memory conversation history
+        """Get conversation history for a specific channel, limited to 8 messages"""
+        # Initialize conversation storage if not exists
         if not hasattr(self, "channel_conversations"):
             self.channel_conversations = {}
 
         if channel_id not in self.channel_conversations:
             self.channel_conversations[channel_id] = []
 
+        # Ensure we only keep the last 8 messages
+        if len(self.channel_conversations[channel_id]) > 8:
+            # Keep only the most recent 8 messages
+            self.channel_conversations[channel_id] = self.channel_conversations[channel_id][-8:]
+            
         return self.channel_conversations[channel_id]
 
     def _get_relevant_lorebook_entries(self, message_content: str) -> List[str]:
@@ -1176,6 +1310,11 @@ class SimpleCharacterBot(commands.Bot):
         Generate a response using the AI API if configured, otherwise fall back to simple responses.
         """
         # Try to use the API first if configured
+        # Ensure we only use up to 8 messages of history
+        if len(conversation_history) > 8:
+            conversation_history = conversation_history[-8:]
+            
+        # Try to use the API first if configured
         if self.ai_client and self.chat_model:
             response = await self._call_chat_api(
                 message_content, user_name, conversation_history, relevant_lore
@@ -1199,10 +1338,11 @@ class SimpleCharacterBot(commands.Bot):
             for lore in relevant_lore:
                 prompt += f"- {lore}\n"
 
-        # Add conversation history context
-        if len(conversation_history) > 1:
+        # Add conversation history context (limiting to available history)
+        history_to_use = conversation_history[:-1]  # Exclude current message
+        if history_to_use:
             prompt += "\nRecent conversation:\n"
-            for entry in conversation_history[-4:-1]:  # Skip the current message
+            for entry in history_to_use:
                 prompt += f"{entry['name']}: {entry['content']}\n"
 
         # Detect basic greeting patterns
