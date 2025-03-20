@@ -59,6 +59,7 @@ def create_character_config(shapes_data):
     character_name = shapes_data.get("name", "Unknown")
     
     # Extract personality traits
+    user_prompt = shapes_data.get("user_prompt", "")
     personality_catchphrases = shapes_data.get("personality_catchphrases", None)
     personality_age = shapes_data.get("personality_age", "Unknown age")
     personality_likes = shapes_data.get("personality_likes", "")
@@ -70,6 +71,9 @@ def create_character_config(shapes_data):
     personality_history = shapes_data.get("personality_history", "")
     personality_conversational_goals = shapes_data.get("personality_conversational_goals", "")
     personality_conversational_examples = shapes_data.get("personality_conversational_examples", "")
+    free_will = shapes_data.get("free_will", False)
+    free_will_instruction = shapes_data.get("free_will_instruction", "")
+    jailbreak = shapes_data.get("jailbreak", "")
     
     # Construct initial message
     initial_message = ""
@@ -109,6 +113,7 @@ def create_character_config(shapes_data):
         "allowed_guilds": [],
         "command_prefix": "!",
         "system_prompt": system_prompt.strip(),
+        "character_backstory": user_prompt.strip(),
         "character_description": character_description.strip(),
         "personality_catchphrases": personality_catchphrases or "",
         "personality_age": personality_age,
@@ -122,6 +127,9 @@ def create_character_config(shapes_data):
         "personality_conversational_goals": personality_conversational_goals.replace("{user}", "[user]"),
         "personality_conversational_examples": personality_conversational_examples.replace("{user}", "[user]"),
         "character_scenario": character_scenario,
+        "free_will": free_will,
+        "free_will_instruction": free_will_instruction or "",
+        "jailbreak": jailbreak or "",
         "add_character_name": False,
         "reply_to_name": True,
         "always_reply_mentions": True,

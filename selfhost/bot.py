@@ -49,9 +49,8 @@ class OpenShape(commands.Bot):
 
         # Conversation settings
         self.system_prompt = self.character_config.get("system_prompt", "")
-        self.character_description = self.character_config.get(
-            "character_description", ""
-        )
+        self.character_backstory = self.character_config.get("character_backstory", "")
+        self.character_description = self.character_config.get("character_description", "")
         self.personality_catchphrases = self.character_config.get("personality_catchphrases")
         self.personality_age = self.character_config.get("personality_age")
         self.personality_likes = self.character_config.get("personality_likes")
@@ -64,6 +63,9 @@ class OpenShape(commands.Bot):
         self.personality_conversational_goals = self.character_config.get("personality_conversational_goals")
         self.personality_conversational_examples = self.character_config.get("personality_conversational_examples")
         self.character_scenario = self.character_config.get("character_scenario", "")
+        self.free_will = self.character_config.get("free_will", False)
+        self.free_will_instruction = self.character_config.get("free_will_instruction", "")
+        self.jailbreak = self.character_config.get("jailbreak", "")
         
 
         # API configuration for AI integration
@@ -293,42 +295,137 @@ class OpenShape(commands.Bot):
 
     async def character_info_command(self, interaction: discord.Interaction):
         """Public command to show character information"""
+        # Create a list to hold multiple embeds if needed
+        class PaginationView(discord.ui.View):
+            def __init__(self, embeds):
+                super().__init__(timeout=120)
+                self.embeds = embeds
+                self.current_page = 0
+                self.total_pages = len(embeds)
+                # Add page count to each embed
+                for i, embed in enumerate(self.embeds):
+                    embed.set_footer(text=f"Page {i+1}/{self.total_pages}")
+            
+            @discord.ui.button(label="◀️ Previous", style=discord.ButtonStyle.secondary, disabled=True)
+            async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                self.current_page = max(0, self.current_page - 1)
+                # Enable/disable buttons based on current page
+                self.previous_button.disabled = self.current_page == 0
+                self.next_button.disabled = self.current_page == self.total_pages - 1
+                await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
+
+            @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary)
+            async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                self.current_page = min(self.total_pages - 1, self.current_page + 1)
+                # Enable/disable buttons based on current page
+                self.previous_button.disabled = self.current_page == 0
+                self.next_button.disabled = self.current_page == self.total_pages - 1
+                await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
+                
+        embeds = []
+        
+        # First embed with basic info
         embed = discord.Embed(title=f"{self.character_name} Info", color=0x3498DB)
+        current_size = len(embed.title)
         
-        # Basic info (existing)
-        embed.add_field(
-            name="Description",
-            value=self.character_description[:1024] or "No description set",
-            inline=False,
-        )
+        # Track available fields to show
+        fields = []
+        
+        if self.character_backstory:
+            fields.append({
+                "name": "Backstory",
+                "value": self.character_backstory[:1024],
+                "inline": False
+            })
+        
+        if self.character_description:
+            fields.append({
+                "name": "Appearance",
+                "value": self.character_description[:1024],
+                "inline": False
+            })
+        
         if self.character_scenario:
-            embed.add_field(
-                name="Scenario", value=self.character_scenario[:1024], inline=False
-            )
+            fields.append({
+                "name": "Scenario",
+                "value": self.character_scenario[:1024],
+                "inline": False
+            })
         
-        # Add new personality details if available
         if self.personality_age:
-            embed.add_field(name="Age", value=self.personality_age, inline=True)
+            fields.append({
+                "name": "Age",
+                "value": self.personality_age[:1024],
+                "inline": True
+            })
         
         if self.personality_traits:
-            embed.add_field(name="Traits", value=self.personality_traits, inline=True)
-            
+            fields.append({
+                "name": "Traits",
+                "value": self.personality_traits[:1024],
+                "inline": True
+            })
+        
         if self.personality_likes:
-            embed.add_field(name="Likes", value=self.personality_likes, inline=True)
-            
+            fields.append({
+                "name": "Likes",
+                "value": self.personality_likes[:1024],
+                "inline": True
+            })
+        
         if self.personality_dislikes:
-            embed.add_field(name="Dislikes", value=self.personality_dislikes, inline=True)
+            fields.append({
+                "name": "Dislikes",
+                "value": self.personality_dislikes[:1024],
+                "inline": True
+            })
         
         if self.personality_tone:
-            embed.add_field(name="Tone", value=self.personality_tone, inline=True)
+            fields.append({
+                "name": "Tone",
+                "value": self.personality_tone[:1024],
+                "inline": True
+            })
         
-        # Add a field for history if it exists
+        if self.jailbreak:
+            fields.append({
+                "name": "Presets",
+                "value": self.jailbreak[:1024],
+                "inline": True
+            })
+        
         if self.personality_history:
-            # Truncate if too long
-            history = self.personality_history[:1024] + ("..." if len(self.personality_history) > 1024 else "")
-            embed.add_field(name="History", value=history, inline=False)
-
-        await interaction.response.send_message(embed=embed)
+            fields.append({
+                "name": "History",
+                "value": self.personality_history[:1024],
+                "inline": False
+            })
+        
+        # Add fields to embeds, creating new embeds when needed
+        for field in fields:
+            field_size = len(field["name"]) + len(field["value"])
+            
+            # Check if adding this field would exceed the embed size limit (5800 to be safe)
+            if current_size + field_size > 5800:
+                # Add current embed to the list and create a new one
+                embeds.append(embed)
+                embed = discord.Embed(title=f"{self.character_name} Info (Continued)", color=0x3498DB)
+                current_size = len(embed.title)
+            
+            # Add field to the current embed
+            embed.add_field(name=field["name"], value=field["value"], inline=field["inline"])
+            current_size += field_size
+        
+        # Add the final embed to the list
+        embeds.append(embed)
+        
+        # If only one embed, send without pagination
+        if len(embeds) == 1:
+            await interaction.response.send_message(embed=embeds[0])
+        else:
+            # Create pagination view
+            view = PaginationView(embeds)
+            await interaction.response.send_message(embed=embeds[0], view=view)
 
     async def activate_command(self, interaction: discord.Interaction):
         """Activate the bot in the current channel"""
@@ -734,6 +831,29 @@ class OpenShape(commands.Bot):
         modal.on_submit = on_submit
         await interaction.response.send_modal(modal)
 
+    async def edit_backstory_commad(self, interaction: discord.Interaction):
+        """Edit the character's backstory"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+
+        # Create modal for editing
+        modal = TextEditModal(
+            title="Edit Backstory", current_text=self.character_backstory
+        )
+
+        async def on_submit(modal_interaction):
+            self.character_backstory = modal.text_input.value
+            self.config_manager.save_config()
+            await modal_interaction.response.send_message(
+                "Character backstory updated!", ephemeral=True
+            )
+
+        modal.on_submit = on_submit
+        await interaction.response.send_modal(modal)
+        
     async def edit_description_command(self, interaction: discord.Interaction):
         """Edit the character's description"""
         if interaction.user.id != self.owner_id:
@@ -781,6 +901,29 @@ class OpenShape(commands.Bot):
         modal.on_submit = on_submit
         await interaction.response.send_modal(modal)
 
+    async def edit_presets_command(self, interaction: discord.Interaction):
+        """Edit the character's presets"""
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the bot owner can use this command", ephemeral=True
+            )
+            return
+
+        # Create modal for editing
+        modal = TextEditModal(
+            title="Edit Presets", current_text=self.jailbreak
+        )
+
+        async def on_submit(modal_interaction):
+            self.jailbreak = modal.text_input.value
+            self.config_manager.save_config()
+            await modal_interaction.response.send_message(
+                "Character presets updated!", ephemeral=True
+            )
+
+        modal.on_submit = on_submit
+        await interaction.response.send_modal(modal)
+        
     async def blacklist_command(self, interaction: discord.Interaction):
         """Add or remove a user from blacklist"""
         if interaction.user.id != self.owner_id:
@@ -1000,9 +1143,10 @@ class OpenShape(commands.Bot):
                         "name": message.author.display_name,
                         "content": clean_content,
                         "timestamp": datetime.datetime.now().isoformat(),
+                        "discord_id": str(message.author.id),
                     }
                 )
-                
+             
                 # Ensure we maintain the 8 message limit
                 if len(channel_history) > 8:
                     channel_history = channel_history[-8:]
@@ -1043,6 +1187,7 @@ class OpenShape(commands.Bot):
                         "name": self.character_name,
                         "content": response,
                         "timestamp": datetime.datetime.now().isoformat(),
+                        "discord_id": str(self.user.id),
                     }
                 )
                 
@@ -1122,7 +1267,8 @@ class OpenShape(commands.Bot):
                         "user_message": clean_content,
                         "channel_history": channel_history[:-1],  # Don't include the bot's response
                         "relevant_info": relevant_info,  # Store combined lore and memories
-                        "original_message": message.id  # Store original message ID for reply
+                        "original_message": message.id,  # Store original message ID for reply
+                        "user_discord_id": str(message.author.id),
                     }
                     
                     # Save the context needed for regeneration - save it for all message parts
@@ -1591,7 +1737,8 @@ class OpenShape(commands.Bot):
         elif command == "persona":
             # Show current persona details with additional traits
             persona_display = f"**{self.character_name} Persona:**\n"
-            persona_display += f"**Description:** {self.character_description}\n"
+            persona_display += f"**Backstory:** {self.character_backstory}\n"
+            persona_display += f"**Appearance:** {self.character_description}\n"
             persona_display += f"**Scenario:** {self.character_scenario}\n"
             
             # Add new personality details
@@ -1610,6 +1757,8 @@ class OpenShape(commands.Bot):
                 persona_display += f"**History:** {history_preview}\n"
             if self.personality_catchphrases:
                 persona_display += f"**Catchphrases:** {self.personality_catchphrases}\n"
+            if self.jailbreak:
+                persona_display += f"**Presets:** {self.jailbreak}\n"
             
             await message.reply(persona_display)
 
