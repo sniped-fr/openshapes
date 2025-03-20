@@ -2,7 +2,7 @@ import discord, re, os, json, logging, asyncio, io
 from discord.ext import commands
 from typing import Dict, List, Optional, Pattern, Union
 
-logger = logging.getLogger("regex_extension")
+logger = logging.getLogger("openshape.regex_extension")
 
 class RegexScript:
     def __init__(
