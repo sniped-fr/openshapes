@@ -1193,14 +1193,6 @@ python bot.py
             logger.error(f"Error starting container: {e}")
             return False, f"Error starting container: {str(e)}"
 
-            logger.info(f"Started container {container_name} with ID {container.id}")
-
-            return True, f"Container {container_name} started"
-
-        except Exception as e:
-            logger.error(f"Error starting container: {e}")
-            return False, f"Error starting container: {str(e)}"
-
     async def start_bot(self, user_id: str, bot_name: str) -> Tuple[bool, str]:
         """Start a stopped bot"""
         try:
