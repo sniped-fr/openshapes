@@ -17,6 +17,8 @@ from helpers.openshape_helpers import setup_openshape_helpers
 from helpers.cleanup_helpers import setup_cleanup
 from helpers.config_manager import setup_config_manager
 from helpers.fileparser import FileParser
+from helpers.model_selector import fetch_available_models, model_command, ModelSelectView
+
 # Import memory manager
 from vectordb.chroma_integration import setup_memory_system, MemoryCommand, SleepCommand
 
@@ -205,6 +207,15 @@ class OpenShape(commands.Bot):
                 callback=self.settings_command,
             )
         )
+        
+        self.tree.add_command(
+            app_commands.Command(
+                name="models",
+                description="Change the AI model used by the bot",
+                callback=self.models_command,
+            )
+        )
+
         self.tree.add_command(
             app_commands.Command(
                 name="edit_personality_traits",
@@ -444,6 +455,10 @@ class OpenShape(commands.Bot):
         await interaction.response.send_message(
             f"{self.character_name} will now only respond when mentioned or called by name."
         )
+        
+    async def models_command(self, interaction: discord.Interaction):
+        """Command to change the AI model used by the bot"""
+        await model_command(self, interaction)
 
     async def edit_personality_traits_command(self, interaction: discord.Interaction):
         """Edit the character's specific personality traits"""
