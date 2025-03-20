@@ -16,6 +16,7 @@ from helpers.views import *
 from helpers.openshape_helpers import setup_openshape_helpers
 from helpers.cleanup_helpers import setup_cleanup
 from helpers.config_manager import setup_config_manager
+from helpers.fileparser import FileParser
 from helpers.model_selector import fetch_available_models, model_command, ModelSelectView
 
 # Import memory manager
@@ -67,6 +68,7 @@ class OpenShape(commands.Bot):
         self.free_will = self.character_config.get("free_will", False)
         self.free_will_instruction = self.character_config.get("free_will_instruction", "")
         self.jailbreak = self.character_config.get("jailbreak", "")
+        self.file_parser = FileParser()
         
 
         # API configuration for AI integration
@@ -1151,7 +1153,13 @@ class OpenShape(commands.Bot):
         if should_respond:
             async with message.channel.typing():
                 guild_id = str(message.guild.id) if message.guild else "global"
-                
+                clean_content = ""
+                file_content = await self.file_parser.process_attachments(message)
+                if file_content:
+                    print('we have found file content')
+                    print(file_content)
+                    # Append file content to the user's message
+                    clean_content += f"\n\n{file_content}"
                 # Remove mentions from the message
                 clean_content = re.sub(r"<@!?(\d+)>", "", message.content).strip()
 
