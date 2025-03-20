@@ -11,279 +11,6 @@ from typing import Dict, List, Any, Optional, Tuple
 # Configure logging
 logger = logging.getLogger("openshape.helpers")
 
-class MemoryManager:
-    """Handles all memory-related operations"""
-    def __init__(self, bot):
-        self.bot = bot
-        self.memory_path = os.path.join(bot.data_dir, "memory.json")
-        self.long_term_memory = {}
-        self._load_memory()
-        
-    def _load_memory(self):
-        """Load memory from file with updated memory structure"""
-        if os.path.exists(self.memory_path):
-            with open(self.memory_path, "r", encoding="utf-8") as f:
-                loaded_memory = json.load(f)
-                
-                # Check if we need to migrate old memory format
-                if loaded_memory and isinstance(next(iter(loaded_memory.values()), ""), str):
-                    # Old format detected - migrate to new format
-                    migrated_memory = {}
-                    for topic, detail in loaded_memory.items():
-                        migrated_memory[topic] = {
-                            "detail": detail,
-                            "source": "Unknown",  # Default source for migrated memories
-                            "timestamp": datetime.datetime.now().isoformat()
-                        }
-                    self.long_term_memory = migrated_memory
-                else:
-                    # Already in new format or empty
-                    self.long_term_memory = loaded_memory
-        else:
-            self.long_term_memory = {}
-            self._save_memory()
-            
-    def _save_memory(self):
-        """Save memory to file"""
-        with open(self.memory_path, "w", encoding="utf-8") as f:
-            json.dump(self.long_term_memory, f, indent=2)
-            
-    def add_memory(self, topic: str, detail: str, source: str) -> None:
-        """Add a memory with attribution"""
-        self.long_term_memory[topic] = {
-            "detail": detail,
-            "source": source,
-            "timestamp": datetime.datetime.now().isoformat()
-        }
-        logger.info(f"Added memory from {source}: {topic}: {detail}")
-        self._save_memory()
-        
-    def remove_memory(self, topic: str) -> bool:
-        """Remove a memory by topic"""
-        if topic in self.long_term_memory:
-            del self.long_term_memory[topic]
-            self._save_memory()
-            return True
-        return False
-        
-    def clear_memories(self) -> None:
-        """Clear all memories"""
-        self.long_term_memory = {}
-        self._save_memory()
-        
-    def search_memory(self, query: str) -> List[str]:
-        """
-        Search for memories relevant to the provided query.
-        Uses more sophisticated matching to find relevant memories.
-        
-        Args:
-            query: The search query
-            
-        Returns:
-            List of relevant memory strings in format "Topic: Detail (from Source)"
-        """
-        if not self.long_term_memory:
-            return []
-            
-        memory_matches = []
-        query_lower = query.lower().split()
-        
-        # Score each memory for relevance
-        memory_scores = {}
-        
-        for topic, memory_data in self.long_term_memory.items():
-            score = 0
-            topic_lower = topic.lower()
-            detail = memory_data["detail"]
-            source = memory_data["source"]
-            
-            # Direct topic match (highest priority)
-            if topic_lower in query.lower():
-                score += 10
-                
-            # Word-level matching
-            topic_words = topic_lower.split()
-            for word in topic_words:
-                if len(word) > 3 and word in query_lower:  # Only match significant words
-                    score += 3
-                    
-            # Look for words from the detail in the query
-            detail_words = set(detail.lower().split())
-            for word in detail_words:
-                if len(word) > 3 and word in query_lower:
-                    score += 1
-                    
-            # If we found any relevance, add to potential matches
-            if score > 0:
-                formatted_memory = f"{topic}: {detail} (from {source})"
-                memory_scores[topic] = (score, formatted_memory)
-        
-        # Sort by relevance score (highest first)
-        sorted_memories = sorted(memory_scores.items(), key=lambda x: x[1][0], reverse=True)
-        
-        # Get the memory strings for the top matches (limit to 3 most relevant)
-        memory_matches = [mem[1][1] for mem in sorted_memories[:3]]
-        
-        # Log what we found
-        if memory_matches:
-            logger.info(f"Found {len(memory_matches)} relevant memories: {[m.split(':')[0] for m in memory_matches]}")
-        
-        return memory_matches
-        
-    async def extract_memories_from_text(self, text_content: str) -> int:
-        """Extract and store important information from any text as memories"""
-        if not self.bot.ai_client or not self.bot.chat_model:
-            return 0
-        
-        try:
-            # Create a system prompt for memory extraction
-            system_prompt = """You are an AI designed to extract meaningful information from conversations or text that would be valuable to remember for future interactions.
-
-            Instructions:
-            1. Analyze the provided text.
-            2. Identify significant information such as:
-               - Personal preferences (likes, dislikes)
-               - Background information (job, location, family)
-               - Important events (past or planned)
-               - Goals or needs expressed
-               - Problems being faced
-               - Relationships between people
-
-            3. For each piece of significant information, output a JSON object with these key-value pairs:
-               - "topic": A short, descriptive topic name (e.g., "User's Job", "Birthday Plans")
-               - "detail": A concise factual statement summarizing what to remember
-               - "importance": A number from 1-10 indicating how important this memory is (10 being most important)
-
-            4. Format your output as a JSON array of these objects.
-            5. If nothing significant was found, return an empty array: []
-
-            Only extract specific, factual information, and focus on details that would be useful to remember in future conversations.
-            Your output should be ONLY a valid JSON array with no additional text.
-            """
-            
-            # Call API to analyze conversation
-            memory_analysis = await self.bot._call_chat_api(
-                text_content,
-                system_prompt=system_prompt
-            )
-            
-            # Process the response to extract memory information
-            try:
-                # Look for JSON in the response (in case there's any non-JSON text)
-                json_match = re.search(r'\[.*\]', memory_analysis, re.DOTALL)
-                
-                if json_match:
-                    memory_json = json_match.group(0)
-                    memory_data = json.loads(memory_json)
-                    
-                    # Track how many memories we created
-                    memories_created = 0
-                    
-                    # Update memory with extracted information
-                    for memory in memory_data:
-                        topic = memory.get("topic")
-                        detail = memory.get("detail")
-                        importance = memory.get("importance", 5)
-                        
-                        if topic and detail and importance >= 3:  # Only store memories with importance >= 3
-                            # Store memory with system attribution
-                            self.add_memory(topic, detail, "Sleep Analysis")
-                            memories_created += 1
-                    
-                    return memories_created
-                else:
-                    logger.info("No memory-worthy information found in sleep analysis")
-                    return 0
-                    
-            except (json.JSONDecodeError, AttributeError) as e:
-                logger.warning(f"Failed to parse memory response in sleep: {memory_analysis[:100]}... Error: {str(e)}")
-                return 0
-                
-        except Exception as e:
-            logger.error(f"Error in sleep memory extraction: {e}")
-            return 0
-            
-    async def update_memory_from_conversation(self, user_name: str, user_message: str, bot_response: str) -> None:
-        """Extract and store important information from conversations as memories with user attribution"""
-        if not self.bot.ai_client or not self.bot.chat_model:
-            return
-            
-        try:
-            # Create an improved system prompt that gives clearer instructions for memory extraction
-            system_prompt = """You are an AI designed to extract meaningful information from conversations that would be valuable to remember for future interactions.
-
-        Instructions:
-        1. Analyze the conversation between the user and the AI.
-        2. Identify any significant information about the user such as:
-        - Personal preferences (likes, dislikes)
-        - Background information (job, location, family)
-        - Important events (past or planned)
-        - Goals or needs they've expressed
-        - Problems they're facing
-
-        3. If you find something worth remembering, output a JSON object with a single key-value pair:
-        - Key: A short, descriptive topic name (e.g., "User's Job", "Birthday Plans", "Preferred Music")
-        - Value: A concise factual statement summarizing what to remember
-
-        4. If nothing significant was shared, return an empty JSON object: {}
-
-        Examples:
-        - User saying "I've been learning to play guitar for 3 months now" → {"Music Interest": "User has been learning guitar for 3 months"}
-        - User saying "I have an interview tomorrow at 9am" → {"Job Interview": "User has an interview scheduled tomorrow at 9am"}
-
-        Only extract specific, factual information (not vague impressions), and focus on details about the user, not general topics.
-        Unless it is when the user explicitly requests something to be remembered. You should remember such things, regardless of how pointless.
-        Instead of "User", use the explicit username associated with the given request. "User" would refer  to where you are not certain what someone said. Assign a proper name whenevr you are reasonably able.
-        Your output should be ONLY a valid JSON object with no additional text.
-        """
-            
-            # Construct the conversation content to analyze
-            conversation_content = f"User {user_name}: {user_message}\nAI: {bot_response}"
-            
-            # Call API to analyze conversation
-            memory_analysis = await self.bot._call_chat_api(
-                conversation_content,
-                system_prompt=system_prompt
-            )
-            
-            # Process the response to extract memory information
-            try:
-                # Look for JSON in the response (in case there's any non-JSON text)
-                json_match = re.search(r'\{.*\}', memory_analysis, re.DOTALL)
-                
-                if json_match:
-                    memory_json = json_match.group(0)
-                    memory_data = json.loads(memory_json)
-                    
-                    # Update memory with extracted information and user attribution
-                    for topic, detail in memory_data.items():
-                        if topic and detail and len(detail) > 3:  # Make sure they're not empty and meaningful
-                            self.add_memory(topic, detail, user_name)
-                    
-                else:
-                    logger.info("No memory-worthy information found in conversation")
-                    
-            except (json.JSONDecodeError, AttributeError) as e:
-                logger.warning(f"Failed to parse memory response: {memory_analysis}. Error: {str(e)}")
-                
-        except Exception as e:
-            logger.error(f"Error updating memory from conversation: {e}")
-
-    def format_memories_for_display(self) -> str:
-        """Format memories for display in Discord"""
-        memory_display = "**Long-term Memory:**\n"
-        if not self.long_term_memory:
-            memory_display += "No memories stored yet."
-        else:
-            # Sort memories alphabetically by topic for better readability
-            sorted_memories = sorted(self.long_term_memory.items())
-            for topic, memory_data in sorted_memories:
-                detail = memory_data["detail"]
-                source = memory_data["source"]
-                memory_display += f"- **{topic}**: {detail} (from {source})\n"
-        return memory_display
-
-
 class TTSHandler:
     """Handles all TTS and audio-related operations"""
     def __init__(self, bot):
@@ -414,6 +141,7 @@ class APIManager:
         conversation_history: Optional[List[Dict]] = None,
         relevant_info: Optional[List[str]] = None,
         system_prompt: Optional[str] = None,
+        user_discord_id: Optional[str] = None,
     ) -> Optional[str]:
         """Call the AI API to generate a response with limited conversation history and relevant memories"""
         if not self.bot.ai_client or not self.bot.chat_model:
@@ -425,50 +153,52 @@ class APIManager:
                 system_content = system_prompt
             else:
                 # Build system prompt with character info
-                system_content = f"""You are {self.bot.character_name}.
-                    Description: {self.bot.character_description}
-                    Scenario: {self.bot.character_scenario}
-                    """
+                system_content = f"You are {self.bot.character_name}.\nPeople in conversation: {self.bot.character_name}, {user_name}. Your job is to respond to last message from {user_name}. You can use other messages for context but don't directly address them. DO NOT output an empty message. ALWAYS reply. NO EMPTY MESSAGE. you can message many times in a row. just continue the conversation. do not reply with empty message.\nAbout {self.bot.character_name}: {self.bot.character_backstory}\nScenario: {self.bot.character_scenario}\n"
+                if self.bot.character_description:
+                    system_content += f"Appearance: {self.bot.character_description}\n"
                 if self.bot.personality_age:
                     system_content += f"Age: {self.bot.personality_age}\n"     
                 if self.bot.personality_traits:
-                    system_content += f"Character Traits: {self.bot.personality_traits}\n"
+                    system_content += f"Personality Traits: {self.bot.personality_traits}\n"
                 if self.bot.personality_physical_traits:
                     system_content += f"Physical Traits: {self.bot.personality_physical_traits}\n"
                 if self.bot.personality_tone:
-                    system_content += f"Speaking Tone: {self.bot.personality_tone}\n"
+                    system_content += f"Tone: {self.bot.personality_tone}\n"
                 if self.bot.personality_likes:
                     system_content += f"Likes: {self.bot.personality_likes}\n"
                 if self.bot.personality_dislikes:
                     system_content += f"Dislikes: {self.bot.personality_dislikes}\n"
-                if self.bot.personality_goals:
-                    system_content += f"Goals: {self.bot.personality_goals}\n"
                 if self.bot.personality_history:
-                    system_content += f"Background: {self.bot.personality_history}\n"
+                    system_content += f"History: {self.bot.personality_history}\n"
+                if self.bot.personality_goals:
+                    system_content += f"Personality Goals: {self.bot.personality_goals}\n"
                 if self.bot.personality_catchphrases:
                     system_content += f"Signature Phrases: {self.bot.personality_catchphrases}\n"
-                    
-                # Add conversational examples with substitution
-                if self.bot.personality_conversational_examples:
-                    examples = self.bot.personality_conversational_examples.replace("{user}", user_name)
-                    system_content += f"\nExample Interactions:\n{examples}\n"
                     
                 # Add conversational goals with substitution
                 if self.bot.personality_conversational_goals:
                     goals = self.bot.personality_conversational_goals.replace("{user}", user_name)
                     system_content += f"\nConversational Goals: {goals}\n"
-
-            # Add custom system prompt if available
-            if self.bot.system_prompt:
-                system_content = f"{self.bot.system_prompt}\n\n{system_content}"
+                    
+                # Add conversational examples with substitution
+                if self.bot.personality_conversational_examples:
+                    examples = self.bot.personality_conversational_examples.replace("{user}", user_name)
+                    system_content += f"\nConversataional Examples:\n{examples}\n"
+                    
+                #Add custom system prompt if available
+                if self.bot.system_prompt:
+                    system_content += f"\nContext:\n{self.bot.system_prompt}\n"
 
             # Add relevant information (lore and memories) if available
             if relevant_info and len(relevant_info) > 0:
-                system_content += "\nImportant information you know:\n"
+                system_content += f"\n- Long Term Memory:\n- [System Note: You are not AI or Chatbot. You are {self.bot.character_name}.]\n"
                 for info in relevant_info:
-                    system_content += f"- {info}\n"
-
-            # Prepare messages list
+                    # if not the last item, add a line break
+                    if info != relevant_info[-1]:
+                        system_content += f"\n- [System Note: {info}]"
+                    else:
+                        system_content += f"""\n- [System Note: {info}". Do not repeat this information but you can use it for context if needed.]"""
+           
             messages = [{"role": "system", "content": system_content}]
 
             # Add conversation history (limited to available history, max 8 messages)
@@ -476,11 +206,15 @@ class APIManager:
                 history_to_use = conversation_history[-8:] if len(conversation_history) > 8 else conversation_history
                 for entry in history_to_use:
                     role = "assistant" if entry["role"] == "assistant" else "user"
-                    messages.append({"role": role, "content": entry["content"]})
+                    # Include Discord ID in the message if available
+                    content = f"{entry['name']}: {entry['content']}"
+                    
+                    messages.append({"role": role, "content": content})
 
             # If the latest message isn't in history, add it
             if not conversation_history or user_message != conversation_history[-1].get("content", ""):
-                messages.append({"role": "user", "content": user_message})
+                user_content = f"{user_name}: {user_message}"
+                messages.append({"role": "user", "content": user_content})
 
             # Call API
             completion = await self.bot.ai_client.chat.completions.create(
@@ -509,14 +243,25 @@ class APIManager:
         if len(conversation_history) > 8:
             conversation_history = conversation_history[-8:]
         
+        # Get user Discord ID from the last user message if available
+        user_discord_id = None
+        for entry in reversed(conversation_history):
+            if entry["role"] == "user" and "discord_id" in entry:
+                user_discord_id = entry["discord_id"]
+                break
+        
         # Try to use the API if configured
         if self.bot.ai_client and self.bot.chat_model:
             response = await self.call_chat_api(
-                message_content, user_name, conversation_history, relevant_info
+                message_content, 
+                user_name, 
+                conversation_history, 
+                relevant_info,
+                user_discord_id=user_discord_id
             )
             if response:
                 return response
-
+            
         # Fallback to simple response logic
         # Build a prompt using character information and history
         prompt = f"""Character: {self.bot.character_name}
@@ -775,17 +520,10 @@ class OpenShapeHelpers:
     def __init__(self, bot):
         self.bot = bot
         # Initialize all component managers
-        self.memory = MemoryManager(bot)
         self.tts = TTSHandler(bot)
         self.api = APIManager(bot)
         self.messages = MessageProcessor(bot)
         self.lorebook = LorebookManager(bot)
-        
-        # Replace methods in the bot with our implementations
-        # Memory methods
-        bot._search_memory = self.memory.search_memory
-        bot._update_memory_from_conversation = self.memory.update_memory_from_conversation
-        bot._extract_memories_from_text = self.memory.extract_memories_from_text
         
         # TTS methods
         bot._generate_tts = self.tts.generate_tts
@@ -806,7 +544,6 @@ class OpenShapeHelpers:
         bot._get_relevant_lorebook_entries = self.lorebook.get_relevant_entries
         
         # Provide direct access to the managers from the bot
-        bot.memory_manager = self.memory
         bot.tts_handler = self.tts
         bot.api_manager = self.api
         bot.message_processor = self.messages
@@ -815,9 +552,7 @@ class OpenShapeHelpers:
         bot.message_contexts = self.messages.message_contexts
 
         # Make long_term_memory accessible from the bot
-        bot.long_term_memory = self.memory.long_term_memory
         bot.lorebook_entries = self.lorebook.lorebook_entries
-        bot._save_memory = self.memory._save_memory
         bot._save_lorebook = self.lorebook._save_lorebook
 
 

@@ -17,6 +17,7 @@ class ConfigManager:
             "owner_id": None,
             "character_name": "Assistant",
             "system_prompt": "",
+            "character_backstory": "",
             "character_description": "",
             "character_scenario": "",
             "personality_catchphrases": "",
@@ -30,6 +31,9 @@ class ConfigManager:
             "personality_history": "",
             "personality_conversational_goals": "",
             "personality_conversational_examples": "",
+            "free_will": False,
+            "free_will_instruction": "",
+            "jailbreak": "",
             "add_character_name": True,
             "always_reply_mentions": True,
             "reply_to_name": True,
@@ -103,6 +107,7 @@ class ConfigManager:
             "owner_id": self.bot.owner_id,
             "character_name": self.bot.character_name,
             "system_prompt": self.bot.system_prompt,
+            "character_backstory": self.bot.character_backstory,
             "character_description": self.bot.character_description,
             "character_scenario": self.bot.character_scenario,
             "personality_catchphrases": self.bot.personality_catchphrases,
@@ -116,6 +121,9 @@ class ConfigManager:
             "personality_history": self.bot.personality_history,
             "personality_conversational_goals": self.bot.personality_conversational_goals,
             "personality_conversational_examples": self.bot.personality_conversational_examples,
+            "free_will": self.bot.free_will,
+            "free_will_instruction": self.bot.free_will_instruction,
+            "jailbreak": self.bot.jailbreak,
             "add_character_name": self.bot.add_character_name,
             "always_reply_mentions": self.bot.always_reply_mentions,
             "reply_to_name": self.bot.reply_to_name,
@@ -152,6 +160,7 @@ class ConfigManager:
         
         # Persona settings
         self.bot.system_prompt = config.get("system_prompt", "")
+        self.bot.character_backstory = config.get("character_backstory", "")
         self.bot.character_description = config.get("character_description", "")
         self.bot.character_scenario = config.get("character_scenario", "")
         self.bot.personality_catchphrases = config.get("personality_catchphrases", "")
@@ -165,6 +174,9 @@ class ConfigManager:
         self.bot.personality_history = config.get("personality_history", "")
         self.bot.personality_conversational_goals = config.get("personality_conversational_goals", "")
         self.bot.personality_conversational_examples = config.get("personality_conversational_examples", "")
+        self.bot.free_will = config.get("free_will", False)
+        self.bot.free_will_instruction = config.get("free_will_instruction", "")
+        self.bot.jailbreak = config.get("jailbreak", "")
         
         # Behavior settings
         self.bot.add_character_name = config.get("add_character_name", True)
