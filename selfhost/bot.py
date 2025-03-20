@@ -121,10 +121,12 @@ class OpenShape(commands.Bot):
         self.helpers = setup_openshape_helpers(self)
         
         
-        # Set up the ChromaDB memory system
-        # You can customize the shared database path here
+        # Replace ChromaDB memory system with ChromaMemoryManager
+        from vectordb.vector_memory import ChromaMemoryManager
+        
+        # Initialize ChromaMemoryManager
         shared_db_path = os.path.join(os.getcwd(), "shared_memory")
-        self.memory_manager = setup_memory_system(self, shared_db_path)
+        self.memory_manager = ChromaMemoryManager(self, shared_db_path)
         
         self.regex_manager = RegexManager(self)
         
@@ -497,11 +499,22 @@ class OpenShape(commands.Bot):
         
     async def sleep_command(self, interaction: discord.Interaction):
         """Process recent messages to extract and store memories before going to sleep"""
-        await SleepCommand.execute(self, interaction)
-          
+        # Extract and store memories using ChromaMemoryManager
+        channel_id = interaction.channel_id
+        guild_id = str(interaction.guild.id) if interaction.guild else "global"
+        recent_messages = self.message_processor.get_channel_conversation(channel_id)
+        extracted_count = await self.memory_manager.extract_memories_from_text(
+            "\n".join([msg["content"] for msg in recent_messages]), guild_id
+        )
+        await interaction.response.send_message(
+            f"Processed {extracted_count} memories into long-term storage.", ephemeral=True
+        )
+    
     async def memory_command(self, interaction: discord.Interaction):
         """View or manage memories with source attribution"""
-        await MemoryCommand.execute(self, interaction)
+        guild_id = str(interaction.guild.id) if interaction.guild else "global"
+        memory_display = self.memory_manager.format_memories_for_display(guild_id)
+        await interaction.response.send_message(memory_display, ephemeral=True)
 
     async def api_settings_command(self, interaction: discord.Interaction):
         """Configure AI API settings"""
