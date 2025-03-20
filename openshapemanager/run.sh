@@ -1,0 +1,1 @@
+python3 -B -m openshapes_manager.bot
