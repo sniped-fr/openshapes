@@ -6,9 +6,14 @@ import json
 import nest_asyncio
 import dotenv
 
-from .utils import setup_logger, create_required_directories
-from .container import ContainerManager
-from .commands import setup_commands
+try:
+    from .utils import setup_logger, create_required_directories
+    from .container import ContainerManager
+    from .commands import setup_commands
+except ImportError:
+    from utils import setup_logger, create_required_directories
+    from container import ContainerManager
+    from commands import setup_commands
 
 nest_asyncio.apply()
 
@@ -182,6 +187,7 @@ class OpenShapesManager(commands.Bot):
                 self.logger.error(f"Error updating character_config.json with token: {e}")
                 return False, f"Error updating configuration: {str(e)}"
 
+            print(parser_result)
             container_result = await self.container_manager.start_bot_container(
                 user_id, bot_name, bot_dir
             )

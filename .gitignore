@@ -4,3 +4,6 @@ __pycache__/
 test/
 selfhost/character_data/
 selfhost/shared_memory/
+.env
+*.log
+openshapemanager/openshapes_manager/openshapes_data/
