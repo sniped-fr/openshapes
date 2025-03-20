@@ -173,24 +173,24 @@ except Exception as e:
                 "OPENSHAPE_CONFIG_DIR": "/app/config",
             }
 
-            startup_script = """#!/bin/bash
-cp -v /app/config/character_config.json /app/selfhost/
-cp -v /app/config/config.json /app/selfhost/
-if [ -f /app/config/brain.json ]; then
-    cp -v /app/config/brain.json /app/selfhost/
-fi
+            startup_script = "#!/bin/bash\n"
+            startup_script += "cp -v /app/config/character_config.json /app/selfhost/\n"
+            startup_script += "cp -v /app/config/config.json /app/selfhost/\n"
+            startup_script += "if [ -f /app/config/brain.json ]; then\n"
+            startup_script += "    cp -v /app/config/brain.json /app/selfhost/\n"
+            startup_script += "fi\n"
+            startup_script += "\n"
+            startup_script += "mkdir -p /app/selfhost/character_data\n"
+            startup_script += "\n"
+            startup_script += "if [ -d /app/config/character_data ]; then\n"
+            startup_script += "    cp -rv /app/config/character_data/* /app/selfhost/character_data/\n"
+            startup_script += "fi\n"
+            startup_script += "\n"
+            startup_script += "cd /app/selfhost\n"
+            startup_script += "python bot.py\n"
 
-mkdir -p /app/selfhost/character_data
-
-if [ -d /app/config/character_data ]; then
-    cp -rv /app/config/character_data/* /app/selfhost/character_data/
-fi
-
-cd /app/selfhost
-python bot.py
-"""
             script_path = os.path.join(bot_dir, "start_bot.sh")
-            with open(script_path, "w") as f:
+            with open(script_path, "w", newline='\n') as f:
                 f.write(startup_script)
 
             os.chmod(script_path, 0o755)
