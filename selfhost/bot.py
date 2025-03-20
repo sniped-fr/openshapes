@@ -130,6 +130,10 @@ class OpenShape(commands.Bot):
         
         # Initialize storage for conversations
         self.channel_conversations = {}
+        
+        # Rate limiting for messages
+        self.channel_last_message_time = {}  # Last message time per channel
+        self.message_cooldown_seconds = 3  # Cooldown between messages
 
     async def setup_hook(self):
         """Register slash commands when the bot is starting up"""
@@ -1072,27 +1076,46 @@ class OpenShape(commands.Bot):
 
         # Check if we should respond
         should_respond = False
+        is_priority = False  # Flag for priority messages (mentions/replies)
 
-        # Check if the channel is activated for responding to all messages
-        if message.channel.id in self.activated_channels:
+        # Respond to direct mentions (priority)
+        if self.always_reply_mentions and self.user in message.mentions:
             should_respond = True
-
-        # Respond to direct mentions
-        elif self.always_reply_mentions and self.user in message.mentions:
+            is_priority = True
+        # Check if the message is a direct reply to the bot (priority)
+        elif (hasattr(message, 'reference') and 
+            message.reference and 
+            message.reference.resolved and 
+            message.reference.resolved.author.id == self.user.id):
             should_respond = True
-
-        # Respond when name is called
+            is_priority = True
+        # Respond when name is called (priority)
         elif (
             self.reply_to_name
             and self.character_name.lower() in message.content.lower()
         ):
             should_respond = True
+            is_priority = True
+        # Check if the channel is activated for responding to all messages
+        elif message.channel.id in self.activated_channels:
+            current_time = datetime.datetime.now().timestamp()
+            last_time = self.channel_last_message_time.get(message.channel.id, 0)
+            time_since_last_message = current_time - last_time
+            
+            # Only respond if not on cooldown
+            if time_since_last_message >= self.message_cooldown_seconds:
+                should_respond = True
+                self.channel_last_message_time[message.channel.id] = current_time
 
         # Check for OOC command prefix (out of character)
         is_ooc = message.content.startswith("//") or message.content.startswith("/ooc")
         if is_ooc and message.author.id == self.owner_id:
             await self._handle_ooc_command(message)
             return
+
+        # Always update the timestamp for priority messages
+        if is_priority and message.channel.id in self.activated_channels:
+            self.channel_last_message_time[message.channel.id] = datetime.datetime.now().timestamp()
         
         # Apply RegEx to message content if needed
         processed_content = message.content
