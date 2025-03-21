@@ -57,15 +57,14 @@ app.add_middleware(
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://localhost:3000/api/auth/callback/discord")
-DISCORD_API_ENDPOINT = "https://discord.com/api/v10"
-
+DISCORD_API_ENDPOINT = "https://discord.com/api"
 # JWT settings
 JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION = 24 * 60 * 60  # 24 hours in seconds
 
 # MongoDB connection
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_URI = os.getenv("MONGODB_URI")
 client = MongoClient(MONGODB_URI, server_api=ServerApi('1'))
 db = client["openshapes"]
 users_collection = db["users"]
@@ -159,6 +158,7 @@ def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.utcnow() + timedelta(seconds=JWT_EXPIRATION)
     to_encode.update({"exp": expire})
+    print(to_encode)
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return encoded_jwt
 
@@ -241,6 +241,7 @@ async def auth_callback(code: str):
         "code": code,
         "redirect_uri": DISCORD_REDIRECT_URI,
     }
+    print(data)
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
     
     async with httpx.AsyncClient() as client:
@@ -303,7 +304,7 @@ async def auth_callback(code: str):
     access_token = create_access_token({"sub": discord_user["id"]})
     
     # Redirect to frontend with token
-    redirect_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}?token={access_token}"
+    redirect_url = f"{os.getenv('FRONTEND_URL', 'http://127.0.0.1:7000')}?token={access_token}"
     response = RedirectResponse(url=redirect_url)
     
     # Set cookie with token
