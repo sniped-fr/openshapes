@@ -57,7 +57,7 @@ class TextProcessor:
         return text[:max_length] + "\n[Content truncated due to length...]"
 
 class FileParser:
-    MAX_FILE_SIZE = 4 * 1024 * 1024  # 4MB
+    MAX_FILE_SIZE = 4 * 1024 * 1024
     MAX_TEXT_LENGTH = 8000
     
     def __init__(self):

@@ -186,7 +186,7 @@ except Exception as e:
             startup_script += "    cp -rv /app/config/character_data/* /app/bot/character_data/\n"
             startup_script += "fi\n"
             startup_script += "\n"
-            startup_script += "cd /app/bot\n"
+            startup_script += "cd /app/bot/openshapes\n"
             startup_script += "python bot.py\n"
 
             script_path = os.path.join(bot_dir, "start_bot.sh")
