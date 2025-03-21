@@ -8,3 +8,5 @@ bot/shared_memory/
 *.log
 manager/openshapes_manager/openshapes_data/
 manager/openshapes_data/
+
+selfhost/
