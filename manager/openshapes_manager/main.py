@@ -19,7 +19,7 @@ import secrets, psutil
 import jwt, re
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
-from models import *
+from tools import *
 
 # Ensure the openshapes_manager module is in the Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -316,70 +316,6 @@ async def get_user_bots(current_user: User = Depends(get_current_user)):
     return {"bots": result}
 
 
-@app.post("/api/bots/import")
-async def import_bot(bot_data: BotCreate, current_user: User = Depends(get_current_user)):
-    """Create a new bot"""
-    # Check if user has enough credits
-    if current_user.bot_credits <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Not enough bot credits"
-        )
-    
-    # Check if bot name is available
-    existing_bot = bots_collection.find_one({
-        "owner_id": current_user.id,
-        "name": bot_data.name
-    })
-    
-    if existing_bot:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"You already have a bot named {bot_data.name}"
-        )
-    
-    # Create bot configuration JSON
-    config_json = json.dumps(bot_data.config)
-    brain_json = None
-    if bot_data.brain_data:
-        brain_json = json.dumps(bot_data.brain_data)
-    
-    # Create the bot using OpenShapesManager
-    success, message = await bot_manager.create_bot(
-        current_user.id,
-        bot_data.name,
-        config_json,
-        bot_data.bot_token,
-        brain_json
-    )
-    
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=message
-        )
-    
-    # Store bot information in database
-    bot_document = {
-        "name": bot_data.name,
-        "owner_id": current_user.id,
-        "description": bot_data.description or "",
-        "created_at": datetime.utcnow(),
-    }
-    
-    result = bots_collection.insert_one(bot_document)
-    
-    # Deduct a credit from the user
-    users_collection.update_one(
-        {"id": current_user.id},
-        {"$inc": {"bot_credits": -1}}
-    )
-    
-    return {
-        "id": str(result.inserted_id),
-        "message": message
-    }
-
 @app.post("/api/bots")
 async def create_bot(bot_data: DirectBotCreate, current_user: User = Depends(get_current_user)):
     """Create a new bot directly with parameters"""
@@ -389,6 +325,24 @@ async def create_bot(bot_data: DirectBotCreate, current_user: User = Depends(get
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Not enough bot credits"
         )
+    
+    # Validate the bot token and check for intents
+    valid, message = await check_bot_token_intents(bot_data.bot_token)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=message
+        )
+    
+    # Add a warning about privileged intents
+    intent_warning = """
+⚠️ IMPORTANT: Make sure you have enabled all privileged intents in the Discord Developer Portal:
+1. Go to https://discord.com/developers/applications
+2. Select your application
+3. Go to the "Bot" tab
+4. Scroll down to "Privileged Gateway Intents"
+5. Enable ALL THREE intents: PRESENCE INTENT, SERVER MEMBERS INTENT, and MESSAGE CONTENT INTENT
+    """
         
     bot_name = bot_data.character_name.lower().replace(" ", "_")
     
@@ -397,7 +351,6 @@ async def create_bot(bot_data: DirectBotCreate, current_user: User = Depends(get
         "owner_id": current_user.id,
         "name": bot_name
     })
-    
     
     # Append random hex to bot name if it already exists
     if existing_bot:
@@ -469,9 +422,16 @@ async def create_bot(bot_data: DirectBotCreate, current_user: User = Depends(get
     )
     
     if not container_result[0]:
+        error_msg = container_result[1]
+        # Check if the failure is due to privileged intents
+        if "privileged intents" in error_msg.lower() or "PrivilegedIntentsRequired" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Error: Missing required privileged intents. {intent_warning}"
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=container_result[1]
+            detail=error_msg
         )
     
     await bot_manager.container_manager.refresh_bot_list()
