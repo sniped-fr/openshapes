@@ -20,6 +20,7 @@ nest_asyncio.apply()
 dotenv.load_dotenv()
 
 BOT_CONFIG_FILE = "manager_config.json"
+DIR = os.path.dirname(os.path.abspath(__file__))
 
 class OpenShapesManager(commands.Bot):
     def __init__(self):
@@ -44,19 +45,44 @@ class OpenShapesManager(commands.Bot):
     # Property to delegate active_bots access to container_manager
     @property
     def active_bots(self):
+        # Make sure container_manager is initialized
+        if not hasattr(self, 'container_manager') or self.container_manager is None:
+            self.logger.warning("Container manager not initialized, returning empty dict for active_bots")
+            return {}
+        
         return self.container_manager.active_bots
 
     def _load_config(self) -> dict:
-        if os.path.exists(BOT_CONFIG_FILE):
+        if os.path.exists(os.path.join(DIR, BOT_CONFIG_FILE)):
             try:
-                with open(BOT_CONFIG_FILE, "r") as f:
+                with open(os.path.join(DIR, BOT_CONFIG_FILE), "r") as f:
                     return json.load(f)
             except Exception as e:
                 self.logger.error(f"Error loading config: {e}")
-        return None
-
+        
+        # Create default configuration
+        default_config = {
+            "data_dir": "openshapes_data",
+            "max_bots_per_user": 5,
+            "admin_users": [],
+            "admin_roles": [],
+            "docker_base_image": "openshapes:latest"
+        }
+        
+        self.logger.warning("No configuration found, using default settings")
+        
+        # Save the default config
+        try:
+            with open(os.path.join(DIR, BOT_CONFIG_FILE), "w") as f:
+                json.dump(default_config, f, indent=2)
+            self.logger.info(f"Created default configuration file at {BOT_CONFIG_FILE}")
+        except Exception as e:
+            self.logger.error(f"Failed to save default configuration: {e}")
+        
+        return default_config
+    
     def save_config(self) -> None:
-        with open(BOT_CONFIG_FILE, "w") as f:
+        with open(os.path.join(DIR, BOT_CONFIG_FILE), "w") as f:
             json.dump(self.config, f, indent=2)
 
     async def setup_hook(self):
@@ -95,13 +121,17 @@ class OpenShapesManager(commands.Bot):
 
     def is_admin(self, interaction: discord.Interaction) -> bool:
         user_id = str(interaction.user.id)
-
-        if user_id in self.config["admin_users"]:
+        
+        if self.config is None or "admin_users" not in self.config:
+            self.logger.warning("Config missing or admin_users not found in config")
+            return False
+        
+        if user_id in self.config.get("admin_users", []):
             return True
 
-        if interaction.guild:
+        if interaction.guild and "admin_roles" in self.config:
             user_roles = [str(role.id) for role in interaction.user.roles]
-            for role_id in self.config["admin_roles"]:
+            for role_id in self.config.get("admin_roles", []):
                 if role_id in user_roles:
                     return True
 
