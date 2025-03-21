@@ -1090,4 +1090,4 @@ if __name__ == "__main__":
     start_bot_manager_thread()
     
     # Then start the FastAPI application
-    uvicorn.run("main:app", host="127.0.0.1", port=7000, reload=True)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
