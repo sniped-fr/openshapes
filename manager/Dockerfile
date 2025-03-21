@@ -7,7 +7,12 @@ RUN apt-get update && apt-get install -y \
 
 RUN git clone https://github.com/zukijourney/openshapes.git .
 
-RUN pip install --no-cache-dir -r bot/requirements.txt
+# Hardcode the requirements instead of using a file
+RUN pip install --no-cache-dir \
+    discord.py>=2.5.2 \
+    openai>=1.66.5 \
+    chromadb>=0.4.22 \
+    aiohttp>=3.11.11
 
 WORKDIR /app/bot
 
