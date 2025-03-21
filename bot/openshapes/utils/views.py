@@ -1,59 +1,264 @@
 import discord
 import re
+from typing import Callable, Optional, Protocol, TypeVar, Any, List, Awaitable
+from abc import abstractmethod
+from enum import Enum, auto
 from discord import ui
-from typing import Callable
+
+T = TypeVar('T')
+InteractionCallbackT = Callable[[discord.Interaction], Awaitable[None]]
+
+class TextInputType(Enum):
+    PARAGRAPH = auto()
+    SHORT = auto()
+    
+    @property
+    def discord_style(self) -> discord.TextStyle:
+        if self == TextInputType.PARAGRAPH:
+            return discord.TextStyle.paragraph
+        else:
+            return discord.TextStyle.short
+
+class ButtonType(Enum):
+    PRIMARY = auto()
+    SECONDARY = auto()
+    SUCCESS = auto()
+    DANGER = auto()
+    
+    @property
+    def discord_style(self) -> discord.ButtonStyle:
+        mapping = {
+            ButtonType.PRIMARY: discord.ButtonStyle.primary,
+            ButtonType.SECONDARY: discord.ButtonStyle.secondary,
+            ButtonType.SUCCESS: discord.ButtonStyle.green,
+            ButtonType.DANGER: discord.ButtonStyle.red
+        }
+        return mapping[self]
+
+class UIBuilder(Protocol):
+    def build(self) -> Any:
+        pass
+
+class ModalBuilder(UIBuilder):
+    @abstractmethod
+    def add_text_input(
+        self,
+        label: str,
+        style: TextInputType,
+        default: str = "",
+        placeholder: str = "",
+        required: bool = True,
+        max_length: int = 0
+    ) -> 'ModalBuilder':
+        pass
+        
+    @abstractmethod
+    def set_title(self, title: str) -> 'ModalBuilder':
+        pass
+        
+    @abstractmethod
+    def set_submit_callback(self, callback: InteractionCallbackT) -> 'ModalBuilder':
+        pass
+
+class TextInputBuilder:
+    def __init__(self):
+        self.label: str = ""
+        self.style: TextInputType = TextInputType.SHORT
+        self.default: str = ""
+        self.placeholder: str = ""
+        self.required: bool = True
+        self.max_length: int = 0
+        
+    def with_label(self, label: str) -> 'TextInputBuilder':
+        self.label = label
+        return self
+        
+    def with_style(self, style: TextInputType) -> 'TextInputBuilder':
+        self.style = style
+        return self
+        
+    def with_default(self, default: str) -> 'TextInputBuilder':
+        self.default = default
+        return self
+        
+    def with_placeholder(self, placeholder: str) -> 'TextInputBuilder':
+        self.placeholder = placeholder
+        return self
+        
+    def with_required(self, required: bool) -> 'TextInputBuilder':
+        self.required = required
+        return self
+        
+    def with_max_length(self, max_length: int) -> 'TextInputBuilder':
+        self.max_length = max_length
+        return self
+        
+    def build(self) -> ui.TextInput:
+        text_input = ui.TextInput(
+            label=self.label,
+            style=self.style.discord_style,
+            default=self.default,
+            placeholder=self.placeholder,
+            required=self.required
+        )
+        
+        if self.max_length > 0:
+            text_input.max_length = self.max_length
+            
+        return text_input
+
+class DiscordModalBuilder(ModalBuilder):
+    def __init__(self):
+        self.title: str = "Modal"
+        self.inputs: List[ui.TextInput] = []
+        self.submit_callback: Optional[InteractionCallbackT] = None
+        
+    def set_title(self, title: str) -> 'DiscordModalBuilder':
+        self.title = title
+        return self
+        
+    def add_text_input(
+        self,
+        label: str,
+        style: TextInputType,
+        default: str = "",
+        placeholder: str = "",
+        required: bool = True,
+        max_length: int = 0
+    ) -> 'DiscordModalBuilder':
+        text_input = TextInputBuilder() \
+            .with_label(label) \
+            .with_style(style) \
+            .with_default(default) \
+            .with_placeholder(placeholder) \
+            .with_required(required) \
+            .with_max_length(max_length) \
+            .build()
+            
+        self.inputs.append(text_input)
+        return self
+        
+    def set_submit_callback(self, callback: InteractionCallbackT) -> 'DiscordModalBuilder':
+        self.submit_callback = callback
+        return self
+        
+    def build(self) -> ui.Modal:
+        modal = ui.Modal(title=self.title)
+        
+        for text_input in self.inputs:
+            modal.add_item(text_input)
+            
+        if self.submit_callback:
+            modal.on_submit = self.submit_callback
+            
+        return modal
 
 class TextEditModal(ui.Modal):
     def __init__(self, title: str, current_text: str = "", max_length: int = 4000):
         super().__init__(title=title)
-        self.text_input = ui.TextInput(
-            label="Edit Text",
-            style=discord.TextStyle.paragraph,
-            default=current_text,
-            max_length=max_length,
-            required=True,
-        )
+        self.text_input = TextInputBuilder() \
+            .with_label("Edit Text") \
+            .with_style(TextInputType.PARAGRAPH) \
+            .with_default(current_text) \
+            .with_max_length(max_length) \
+            .with_required(True) \
+            .build()
         self.add_item(self.text_input)
 
 class APISettingModal(ui.Modal):
     def __init__(self, title: str):
         super().__init__(title=title)
-        self.setting_input = ui.TextInput(
-            label="Value",
-            style=discord.TextStyle.short,
-            required=True,
-        )
+        self.setting_input = TextInputBuilder() \
+            .with_label("Value") \
+            .with_style(TextInputType.SHORT) \
+            .with_required(True) \
+            .build()
         self.add_item(self.setting_input)
 
 class UserIDModal(ui.Modal):
     def __init__(self, title: str):
         super().__init__(title=title)
-        self.user_id_input = ui.TextInput(
-            label="User ID",
-            style=discord.TextStyle.short,
-            placeholder="Enter user ID (e.g. 123456789012345678)",
-            required=True,
-        )
+        self.user_id_input = TextInputBuilder() \
+            .with_label("User ID") \
+            .with_style(TextInputType.SHORT) \
+            .with_placeholder("Enter user ID (e.g. 123456789012345678)") \
+            .with_required(True) \
+            .build()
         self.add_item(self.user_id_input)
 
+class ButtonConfiguration:
+    def __init__(
+        self,
+        label: str,
+        style: ButtonType,
+        callback: InteractionCallbackT,
+        custom_id: Optional[str] = None
+    ):
+        self.label = label
+        self.style = style
+        self.callback = callback
+        self.custom_id = custom_id
+        
+    @staticmethod
+    def confirm_button(callback: InteractionCallbackT) -> 'ButtonConfiguration':
+        return ButtonConfiguration("Confirm", ButtonType.SUCCESS, callback)
+        
+    @staticmethod
+    def cancel_button(callback: InteractionCallbackT) -> 'ButtonConfiguration':
+        return ButtonConfiguration("Cancel", ButtonType.DANGER, callback)
+
+class ViewBuilder(UIBuilder):
+    def __init__(self):
+        self.buttons: List[ButtonConfiguration] = []
+        self.timeout: int = 180
+        
+    def with_timeout(self, timeout: int) -> 'ViewBuilder':
+        self.timeout = timeout
+        return self
+        
+    def add_button(self, config: ButtonConfiguration) -> 'ViewBuilder':
+        self.buttons.append(config)
+        return self
+        
+    def build(self) -> ui.View:
+        view = ui.View(timeout=self.timeout)
+        
+        for config in self.buttons:
+            button = ui.Button(
+                label=config.label,
+                style=config.style.discord_style,
+                custom_id=config.custom_id
+            )
+            button.callback = config.callback
+            view.add_item(button)
+            
+        return view
+
 class ConfirmView(ui.View):
-    def __init__(self, confirm_callback: Callable, cancel_callback: Callable = None):
+    def __init__(
+        self,
+        confirm_callback: InteractionCallbackT,
+        cancel_callback: Optional[InteractionCallbackT] = None
+    ):
         super().__init__(timeout=180)
         self.confirm_callback = confirm_callback
         self.cancel_callback = cancel_callback
 
-    @ui.button(label="Confirm", style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: ui.Button):
-        await self.confirm_callback(interaction)
-        self.stop()
+        @ui.button(label="Confirm", style=discord.ButtonStyle.green)
+        async def confirm(self, interaction: discord.Interaction, button: ui.Button) -> None:
+            await self.confirm_callback(interaction)
+            self.stop()
 
-    @ui.button(label="Cancel", style=discord.ButtonStyle.red)
-    async def cancel(self, interaction: discord.Interaction, button: ui.Button):
-        if self.cancel_callback:
-            await self.cancel_callback(interaction)
-        else:
-            await interaction.response.send_message("Operation canceled.", ephemeral=True)
-        self.stop()
+        @ui.button(label="Cancel", style=discord.ButtonStyle.red)
+        async def cancel(self, interaction: discord.Interaction, button: ui.Button) -> None:
+            if self.cancel_callback:
+                await self.cancel_callback(interaction)
+            else:
+                await interaction.response.send_message("Operation canceled.", ephemeral=True)
+            self.stop()
+
+        self.confirm = confirm.__get__(self)
+        self.cancel = cancel.__get__(self)
 
 class LorebookEntryModal(ui.Modal):
     def __init__(self, title: str, default_keyword: str = "", default_content: str = ""):
@@ -243,7 +448,13 @@ class SettingsView(ui.View):
         await interaction.response.edit_message(content=settings_display, view=self)
 
 class RegexScriptModal(ui.Modal):
-    def __init__(self, title: str, default_name: str = "", default_pattern: str = "", default_replace: str = ""):
+    def __init__(
+        self,
+        title: str,
+        default_name: str = "",
+        default_pattern: str = "",
+        default_replace: str = ""
+    ):
         super().__init__(title=title)
         self.name_input = ui.TextInput(
             label="Script Name",
