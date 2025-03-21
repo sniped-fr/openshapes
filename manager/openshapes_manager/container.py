@@ -60,21 +60,27 @@ except Exception as e:
     
     @staticmethod
     def create_bot_startup_script() -> str:
+        # Updated startup script to use bot/run.sh instead of the selfhost directory
         startup_script = "#!/bin/bash\n"
-        startup_script += "cp -v /app/config/character_config.json /app/selfhost/\n"
-        startup_script += "cp -v /app/config/config.json /app/selfhost/\n"
-        startup_script += "if [ -f /app/config/brain.json ]; then\n"
-        startup_script += "    cp -v /app/config/brain.json /app/selfhost/\n"
-        startup_script += "fi\n"
-        startup_script += "\n"
-        startup_script += "mkdir -p /app/selfhost/character_data\n"
-        startup_script += "\n"
+        startup_script += "# Create necessary directory structure\n"
+        startup_script += "mkdir -p /app/bot/character_data\n\n"
+        
+        startup_script += "# Copy configuration files to the proper locations\n"
+        startup_script += "cp -v /app/config/character_config.json /app/bot/\n"
+        
         startup_script += "if [ -d /app/config/character_data ]; then\n"
-        startup_script += "    cp -rv /app/config/character_data/* /app/selfhost/character_data/\n"
-        startup_script += "fi\n"
-        startup_script += "\n"
-        startup_script += "cd /app/selfhost\n"
-        startup_script += "python bot.py\n"
+        startup_script += "    cp -rv /app/config/character_data/* /app/bot/character_data/\n"
+        startup_script += "fi\n\n"
+        
+        startup_script += "# Set debug flag if needed\n"
+        startup_script += "DEBUG_FLAG=\"\"\n"
+        startup_script += "if [ \"$DEBUG\" = \"true\" ]; then\n"
+        startup_script += "    DEBUG_FLAG=\"--debug\"\n"
+        startup_script += "fi\n\n"
+        
+        startup_script += "# Change to bot directory and run the bot using run.sh\n"
+        startup_script += "cd /app/bot\n"
+        startup_script += "bash run.sh --config character_config.json $DEBUG_FLAG\n"
         
         return startup_script
 
@@ -251,6 +257,13 @@ class BotContainerOperations(ContainerOperationExecutor):
             
             self.logger.info(f"Started container {container_name} with ID {container.id}")
             
+            # Store bot information in registry
+            self.registry.register_bot(user_id, bot_name, {
+                "container_id": container.id,
+                "status": container.status,
+                "name": container.name,
+            })
+            
             return True, f"Container {container_name} started"
             
         except Exception as e:
@@ -277,6 +290,7 @@ class BotContainerOperations(ContainerOperationExecutor):
             "OPENSHAPE_BOT_NAME": bot_name,
             "OPENSHAPE_USER_ID": user_id,
             "OPENSHAPE_CONFIG_DIR": "/app/config",
+            "DEBUG": "false"  # Could be made configurable in the future
         }
     
     def _create_startup_script(self, bot_dir: str) -> str:
