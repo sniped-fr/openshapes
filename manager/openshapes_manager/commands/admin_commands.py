@@ -42,7 +42,6 @@ class AdminCommand(ABC):
     async def _execute_command(self, interaction: discord.Interaction, **kwargs) -> AdminCommandResult:
         pass
 
-
 class ListAllBotsCommand(AdminCommand):
     async def _execute_command(self, interaction: discord.Interaction, **kwargs) -> AdminCommandResult:
         try:
@@ -95,7 +94,6 @@ class SystemStatsCommand(AdminCommand):
             info = self.bot.container_manager.docker_client.info()
             embed = await self._create_stats_embed(info)
             return AdminCommandResult(True, "System stats retrieved", embed)
-        
         except Exception as e:
             self.bot.logger.error(f"Error getting system stats: {e}")
             return AdminCommandResult(False, f"Error getting system stats: {str(e)}")
@@ -200,7 +198,6 @@ class KillBotCommand(AdminCommand):
         try:
             active_bots = self.bot.container_manager.registry.active_bots
             all_bots = active_bots.get(user_id, {})
-            
             if bot_name not in all_bots:
                 return AdminCommandResult(False, f"Bot {bot_name} not found for user {user_id}")
             
@@ -223,7 +220,6 @@ class DeleteBotCommand(AdminCommand):
         try:
             success, message = await self.bot.delete_bot(user_id, bot_name)
             return AdminCommandResult(success, message)
-        
         except Exception as e:
             self.bot.logger.error(f"Error deleting bot: {e}")
             return AdminCommandResult(False, f"Error deleting bot: {str(e)}")

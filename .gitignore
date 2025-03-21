@@ -6,4 +6,5 @@ selfhost/character_data/
 selfhost/shared_memory/
 .env
 *.log
-openshapemanager/openshapes_manager/openshapes_data/
+manager/openshapes_manager/openshapes_data/
+selfhost/
