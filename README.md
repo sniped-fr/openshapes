@@ -207,7 +207,7 @@ OpenShapes defaults to Zukijourney’s API:
 }
 ```
 
-Originating from the Zukijourney community ([zukijourney.com](https://zukijourney.com)), this is the default, but you can:
+Originating from this organization, ([zukijourney.com](https://zukijourney.com)), this is the default, but you can:
 
 - Switch to any AI API provider.
 - Explore free/affordable options at [CAS by Zukijourney](https://cas.zukijourney.com).
@@ -227,7 +227,7 @@ Licensed under AGPLv3—see the LICENSE file.
 
 ## Acknowledgments
 
-- Gratitude to the Zukijourney community.
+- Gratitude to the ElectronHub and Zukijourney communities.
 - Thanks to the AI character community and all contributors.
 
 ---
