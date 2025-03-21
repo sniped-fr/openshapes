@@ -321,6 +321,10 @@ class OpenShapesManager(commands.Bot):
     async def get_bot_stats(self, user_id: str, bot_name: str) -> Tuple[bool, Dict[str, Any]]:
         return await self.container_manager.get_bot_stats(user_id, bot_name)
 
+    @property
+    def container_manager(self) -> ContainerManager:
+        return self.container_manager
+
 
 class BotApplication:
     def __init__(self):
