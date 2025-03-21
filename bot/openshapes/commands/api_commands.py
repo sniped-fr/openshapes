@@ -66,7 +66,6 @@ async def api_settings_command(self, interaction: discord.Interaction):
             await select_interaction.response.defer(ephemeral=True)
 
             try:
-                # Test chat completion
                 response = await self.ai_client.chat.completions.create(
                     model=self.chat_model,
                     messages=[
@@ -91,13 +90,11 @@ async def api_settings_command(self, interaction: discord.Interaction):
                 )
 
         else:
-            # Create modal for setting value
             modal = APISettingModal(title=f"Set {action.replace('_', ' ').title()}")
 
             async def on_submit(modal_interaction):
                 value = modal.setting_input.value
 
-                # Update the appropriate setting
                 if action == "base_url":
                     self.base_url = value
                     self.api_settings["base_url"] = value
@@ -114,10 +111,8 @@ async def api_settings_command(self, interaction: discord.Interaction):
                     self.tts_voice = value
                     self.api_settings["tts_voice"] = value
 
-                # Update config and reinitialize client
                 self.config_manager.update_field("api_settings", self.api_settings)
 
-                # Reinitialize OpenAI client if base URL and API key are set
                 if self.api_key and self.base_url:
                     try:
                         self.ai_client = AsyncOpenAI(

@@ -23,7 +23,7 @@ class FileParser:
             return ""
     
     async def _extract_file_content(self, attachment: discord.Attachment) -> Optional[str]:
-        if attachment.size > 4 * 1024 * 1024:  # 4MB limit
+        if attachment.size > 4 * 1024 * 1024:
             return f"[File too large to process: {attachment.filename}]"
         
         file_ext = os.path.splitext(attachment.filename)[1].lower()
@@ -32,8 +32,7 @@ class FileParser:
             try:
                 content = await attachment.read()
                 text_content = content.decode('utf-8')
-                
-                # Truncate if too long
+
                 if len(text_content) > 8000:
                     text_content = text_content[:8000] + "\n[Content truncated due to length...]"
                     

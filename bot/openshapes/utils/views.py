@@ -121,7 +121,7 @@ class LorebookManagementView(ui.View):
         
         select = ui.Select(
             placeholder="Select an entry to edit",
-            options=options[:25]  # Discord limit of 25 options
+            options=options[:25]
         )
 
         async def select_callback(select_interaction):
@@ -172,7 +172,7 @@ class LorebookManagementView(ui.View):
         
         select = ui.Select(
             placeholder="Select an entry to remove",
-            options=options[:25]  # Discord limit of 25 options
+            options=options[:25]
         )
 
         async def select_callback(select_interaction):
@@ -346,7 +346,7 @@ class RegexManagementView(ui.View):
         
         select = ui.Select(
             placeholder="Select a script to edit",
-            options=options[:25]  # Discord limit of 25 options
+            options=options[:25]
         )
 
         async def select_callback(select_interaction):
@@ -412,7 +412,7 @@ class RegexManagementView(ui.View):
         
         select = ui.Select(
             placeholder="Select a script to toggle",
-            options=options[:25]  # Discord limit of 25 options
+            options=options[:25]
         )
 
         async def select_callback(select_interaction):
@@ -457,7 +457,7 @@ class RegexManagementView(ui.View):
         
         select = ui.Select(
             placeholder="Select a script to remove",
-            options=options[:25]  # Discord limit of 25 options
+            options=options[:25]
         )
 
         async def select_callback(select_interaction):
@@ -504,7 +504,7 @@ class RegexManagementView(ui.View):
         
         select = ui.Select(
             placeholder="Select a script to view settings",
-            options=options[:25]  # Discord limit of 25 options
+            options=options[:25]
         )
 
         async def select_callback(select_interaction):
