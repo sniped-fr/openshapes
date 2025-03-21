@@ -7,4 +7,5 @@ selfhost/shared_memory/
 .env
 *.log
 manager/openshapes_manager/openshapes_data/
+manager/openshapes_data/
 selfhost/

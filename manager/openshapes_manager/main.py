@@ -74,6 +74,26 @@ bots_collection = db["bots"]
 # Initialize OpenShapesManager
 bot_manager = OpenShapesManager()
 
+if bot_manager.config is None:
+    logger.warning("Bot manager has no configuration, creating default")
+    bot_manager.config = {
+        "data_dir": "openshapes_data",
+        "max_bots_per_user": 5, 
+        "admin_users": [],
+        "admin_roles": [],
+        "docker_base_image": "openshapes:latest"
+    }
+    bot_manager.save_config()
+
+# Make sure the directories exist
+if "data_dir" in bot_manager.config:
+    from openshapes_manager.utils import create_required_directories
+    create_required_directories(bot_manager.config["data_dir"])
+
+if not hasattr(bot_manager, 'container_manager') or bot_manager.container_manager is None:
+    logger.info("Initializing container manager")
+    bot_manager.container_manager = ContainerManager(bot_manager.logger, bot_manager.config)
+    
 # Pydantic models
 class TokenResponse(BaseModel):
     access_token: str
@@ -1070,4 +1090,4 @@ if __name__ == "__main__":
     start_bot_manager_thread()
     
     # Then start the FastAPI application
-    uvicorn.run("main:app", host="127.0.0.1", port=7000, reload=True)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
