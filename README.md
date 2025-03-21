@@ -130,7 +130,7 @@ To migrate from shapes.inc:
 
 1. **Organize files**:
 
-   - Place `shapes.json` and `brain.json` in `openshapes/selfhost`.
+   - Place `shapes.json` and `brain.json` in `openshapes/bot`.
 
 2. **Run the parser**:
 
@@ -158,7 +158,7 @@ To migrate from shapes.inc:
 
    ```bash
    git clone https://github.com/zukijourney/openshapes.git
-   cd openshapes/selfhost
+   cd openshapes/bot
    pip install -r requirements.txt
    ```
 

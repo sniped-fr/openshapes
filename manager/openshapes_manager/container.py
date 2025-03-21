@@ -88,13 +88,13 @@ except Exception as e:
                 image=self.config["docker_base_image"],
                 command="python run_parser.py",
                 volumes={
-                    os.path.abspath(bot_dir): {"bind": "/app/selfhost", "mode": "rw"}
+                    os.path.abspath(bot_dir): {"bind": "/app/bot", "mode": "rw"}
                 },
-                working_dir="/app/selfhost",
+                working_dir="/app/bot",
                 remove=False,
                 detach=True,
                 environment={
-                    "PYTHONPATH": "/app/selfhost"
+                    "PYTHONPATH": "/app/bot"
                 },
             )
 
@@ -174,19 +174,19 @@ except Exception as e:
             }
 
             startup_script = "#!/bin/bash\n"
-            startup_script += "cp -v /app/config/character_config.json /app/selfhost/\n"
-            startup_script += "cp -v /app/config/config.json /app/selfhost/\n"
+            startup_script += "cp -v /app/config/character_config.json /app/bot/\n"
+            startup_script += "cp -v /app/config/config.json /app/bot/\n"
             startup_script += "if [ -f /app/config/brain.json ]; then\n"
-            startup_script += "    cp -v /app/config/brain.json /app/selfhost/\n"
+            startup_script += "    cp -v /app/config/brain.json /app/bot/\n"
             startup_script += "fi\n"
             startup_script += "\n"
-            startup_script += "mkdir -p /app/selfhost/character_data\n"
+            startup_script += "mkdir -p /app/bot/character_data\n"
             startup_script += "\n"
             startup_script += "if [ -d /app/config/character_data ]; then\n"
-            startup_script += "    cp -rv /app/config/character_data/* /app/selfhost/character_data/\n"
+            startup_script += "    cp -rv /app/config/character_data/* /app/bot/character_data/\n"
             startup_script += "fi\n"
             startup_script += "\n"
-            startup_script += "cd /app/selfhost\n"
+            startup_script += "cd /app/bot\n"
             startup_script += "python bot.py\n"
 
             script_path = os.path.join(bot_dir, "start_bot.sh")

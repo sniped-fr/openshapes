@@ -2,10 +2,10 @@
 __pycache__/
 *.pyc
 test/
-selfhost/character_data/
-selfhost/shared_memory/
+bot/character_data/
+bot/shared_memory/
 .env
 *.log
 manager/openshapes_manager/openshapes_data/
 manager/openshapes_data/
-selfhost/
+bot/

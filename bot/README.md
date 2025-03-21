@@ -108,7 +108,7 @@ Store your `shapes.json` and `brain.json` files in a folder where you'll run the
 
 ### Step 1: Set Up the Parser
 
-1. The migration parser script (`parser.py`) is already included in the `openshapes/selfhost` directory
+1. The migration parser script (`parser.py`) is already included in the `openshapes/bot` directory
 2. Place your `shapes.json` and `brain.json` files in this same directory
 
 ### Step 2: Run the Parser
@@ -142,7 +142,7 @@ These files contain all the information needed for your OpenShape.
 
    ```bash
    git clone https://github.com/zukijourney/openshapes.git
-   cd openshapes/selfhost
+   cd openshapes/bot
    ```
 
 2. Install the required dependencies:
@@ -168,14 +168,14 @@ These files contain all the information needed for your OpenShape.
 
 The parser generates the configuration files directly in the correct directory:
 
-- `character_config.json` should be in the `openshapes/selfhost` directory
-- `character_data` folder should be in the `openshapes/selfhost` directory
+- `character_config.json` should be in the `openshapes/bot` directory
+- `character_data` folder should be in the `openshapes/bot` directory
 
 Ensure these files are in place before continuing.
 
 ### Step 4: Start the Bot
 
-From the `openshapes/selfhost` directory, run:
+From the `openshapes/bot` directory, run:
 
 ```bash
 python3 bot.py

@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y \
 
 RUN git clone https://github.com/zukijourney/openshapes.git .
 
-RUN pip install --no-cache-dir -r selfhost/requirements.txt
+RUN pip install --no-cache-dir -r bot/requirements.txt
 
-WORKDIR /app/selfhost
+WORKDIR /app/bot
 
 CMD ["python3", "bot.py"]
