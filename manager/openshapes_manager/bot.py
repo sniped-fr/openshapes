@@ -30,11 +30,20 @@ class OpenShapesManager(commands.Bot):
         self.config = self._load_config()
         self.container_manager = ContainerManager(self.logger, self.config)
         
+        # Add this property to ensure backward compatibility
+        # This property delegates to container_manager's active_bots
+        # So any code that relies on self.active_bots will still work
+        
         if self.config:
             create_required_directories(self.config["data_dir"])
 
         self.bg_tasks = []
         self.monitor_task = asyncio.run(self._create_monitor_task())
+
+    # Property to delegate active_bots access to container_manager
+    @property
+    def active_bots(self):
+        return self.container_manager.active_bots
 
     def _load_config(self) -> dict:
         if os.path.exists(BOT_CONFIG_FILE):
