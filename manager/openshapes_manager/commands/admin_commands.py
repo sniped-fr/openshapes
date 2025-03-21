@@ -14,7 +14,8 @@ def setup_admin_commands(bot, admin_commands):
             return
 
         await bot.refresh_bot_list()
-        total_bots = sum(len(bots) for bots in bot.active_bots.values())
+        # Fix: Access active_bots through container_manager
+        total_bots = sum(len(bots) for bots in bot.container_manager.active_bots.values())
 
         if total_bots == 0:
             await interaction.followup.send("No OpenShapes bots found")
@@ -22,11 +23,12 @@ def setup_admin_commands(bot, admin_commands):
 
         embed = discord.Embed(
             title="All OpenShapes Bots",
-            description=f"Total: {total_bots} bot(s) across {len(bot.active_bots)} user(s)",
+            description=f"Total: {total_bots} bot(s) across {len(bot.container_manager.active_bots)} user(s)",
             color=discord.Color.blue(),
         )
 
-        for user_id, bots in bot.active_bots.items():
+        # Fix: Access active_bots through container_manager
+        for user_id, bots in bot.container_manager.active_bots.items():
             try:
                 user = await bot.fetch_user(int(user_id))
                 user_name = f"{user.name} ({user_id})"
@@ -59,9 +61,10 @@ def setup_admin_commands(bot, admin_commands):
             return
 
         try:
-            info = bot.docker_client.info()
+            # Fix: Access docker_client through container_manager
+            info = bot.container_manager.docker_client.info()
 
-            containers = bot.docker_client.containers.list()
+            containers = bot.container_manager.docker_client.containers.list()
             container_count = len(containers)
             running_count = sum(1 for c in containers if c.status == "running")
 
@@ -76,7 +79,7 @@ def setup_admin_commands(bot, admin_commands):
                 name="Docker",
                 value=f"Version: {info.get('ServerVersion', 'Unknown')}\n"
                 f"Containers: {container_count} (Running: {running_count})\n"
-                f"Images: {len(bot.docker_client.images.list())}",
+                f"Images: {len(bot.container_manager.docker_client.images.list())}",
                 inline=False,
             )
 
@@ -104,10 +107,11 @@ def setup_admin_commands(bot, admin_commands):
                 inline=True,
             )
 
+            # Fix: Access active_bots through container_manager
             embed.add_field(
                 name="OpenShapes",
-                value=f"Total bots: {sum(len(bots) for bots in bot.active_bots.values())}\n"
-                f"Users: {len(bot.active_bots)}\n"
+                value=f"Total bots: {sum(len(bots) for bots in bot.container_manager.active_bots.values())}\n"
+                f"Users: {len(bot.container_manager.active_bots)}\n"
                 f"Data directory: {bot.config['data_dir']}",
                 inline=False,
             )
@@ -173,7 +177,8 @@ def setup_admin_commands(bot, admin_commands):
             return
 
         try:
-            all_bots = bot.active_bots.get(user_id, {})
+            # Fix: Access active_bots through container_manager
+            all_bots = bot.container_manager.active_bots.get(user_id, {})
             if bot_name not in all_bots:
                 await interaction.followup.send(
                     f"❌ Bot {bot_name} not found for user {user_id}"
@@ -181,7 +186,8 @@ def setup_admin_commands(bot, admin_commands):
                 return
 
             container_id = all_bots[bot_name]["container_id"]
-            container = bot.docker_client.containers.get(container_id)
+            # Fix: Access docker_client through container_manager
+            container = bot.container_manager.docker_client.containers.get(container_id)
             container.kill()
 
             await bot.refresh_bot_list()
@@ -223,7 +229,8 @@ def setup_admin_commands(bot, admin_commands):
             return
 
         try:
-            image = bot.docker_client.images.pull(bot.config["docker_base_image"])
+            # Fix: Access docker_client through container_manager
+            image = bot.container_manager.docker_client.images.pull(bot.config["docker_base_image"])
             bot.logger.info(f"Updated base image: {image.id}")
             await interaction.followup.send(f"✅ Base image updated to: {image.id}")
 
