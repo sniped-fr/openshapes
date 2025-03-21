@@ -9,18 +9,17 @@ import httpx
 import json
 import os
 import sys
-import logging
+import logging, secrets
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
-import pymongo
 from bson.objectid import ObjectId
-import asyncio
 import dotenv
 from datetime import datetime, timedelta
 import secrets, psutil
 import jwt
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
+from models import *
 
 # Ensure the openshapes_manager module is in the Python path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -93,66 +92,6 @@ if not hasattr(bot_manager, 'container_manager') or bot_manager.container_manage
     logger.info("Initializing container manager")
     bot_manager.container_manager = ContainerManager(bot_manager.logger, bot_manager.config)
     
-# Pydantic models
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-
-
-class UserBase(BaseModel):
-    username: str
-    discriminator: Optional[str] = None
-    avatar: Optional[str] = None
-
-
-class User(UserBase):
-    id: str
-    bot_credits: int = 3
-    is_admin: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    last_login: datetime = Field(default_factory=datetime.utcnow)
-
-
-class UserOut(UserBase):
-    id: str
-    bot_credits: int
-    is_admin: bool
-
-
-class BotBase(BaseModel):
-    name: str
-    description: Optional[str] = None
-
-
-class BotCreate(BotBase):
-    bot_token: str
-    config: Dict[str, Any]
-    brain_data: Optional[Dict[str, Any]] = None
-
-
-class BotUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-
-
-class BotOut(BotBase):
-    id: str
-    owner_id: str
-    status: str
-    container_id: Optional[str] = None
-    created_at: datetime
-
-
-class APISettingsUpdate(BaseModel):
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    chat_model: Optional[str] = None
-    tts_model: Optional[str] = None
-    tts_voice: Optional[str] = None
-
-
 # Security utilities
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -214,6 +153,9 @@ async def get_current_user(request: Request) -> User:
     
     return User(**user)
 
+@app.get("/")
+async def read_root():
+    return {"message": "OpenShapes Manager API"}
 
 # Authentication routes
 @app.get("/api/auth/discord")
@@ -374,8 +316,8 @@ async def get_user_bots(current_user: User = Depends(get_current_user)):
     return {"bots": result}
 
 
-@app.post("/api/bots")
-async def create_bot_route(bot_data: BotCreate, current_user: User = Depends(get_current_user)):
+@app.post("/api/bots/import")
+async def import_bot(bot_data: BotCreate, current_user: User = Depends(get_current_user)):
     """Create a new bot"""
     # Check if user has enough credits
     if current_user.bot_credits <= 0:
@@ -438,6 +380,122 @@ async def create_bot_route(bot_data: BotCreate, current_user: User = Depends(get
         "message": message
     }
 
+@app.post("/api/bots")
+async def create_bot(bot_data: DirectBotCreate, current_user: User = Depends(get_current_user)):
+    """Create a new bot directly with parameters"""
+    # Check if user has enough credits
+    if current_user.bot_credits <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Not enough bot credits"
+        )
+        
+    bot_name = bot_data.character_name.lower().replace(" ", "_")
+    
+    # Check if bot name is available
+    existing_bot = bots_collection.find_one({
+        "owner_id": current_user.id,
+        "name": bot_name
+    })
+    
+    
+    # Append random hex to bot name if it already exists
+    if existing_bot:
+        bot_name = f"{bot_name}_{secrets.token_hex(4)}"
+        existing_bot = bots_collection.find_one({
+            "owner_id": current_user.id,
+            "name": bot_name
+        })
+    
+    if existing_bot:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"You already have a bot named {bot_name}"
+        )
+    
+    # Build config directly from parameters
+    config = {
+        "bot_token": bot_data.bot_token,
+        "owner_id": current_user.id,
+        "character_name": bot_data.character_name,
+        "allowed_guilds": [],
+        "command_prefix": "!",
+        "system_prompt": bot_data.system_prompt,
+        "character_backstory": bot_data.character_backstory,
+        "character_description": bot_data.character_description,
+        "personality_catchphrases": bot_data.personality_catchphrases,
+        "personality_age": bot_data.personality_age,
+        "personality_likes": bot_data.personality_likes,
+        "personality_dislikes": bot_data.personality_dislikes,
+        "personality_goals": bot_data.personality_goals,
+        "personality_traits": bot_data.personality_traits,
+        "personality_physical_traits": bot_data.personality_physical_traits,
+        "personality_tone": bot_data.personality_tone,
+        "personality_history": bot_data.personality_history,
+        "personality_conversational_goals": bot_data.personality_conversational_goals.replace("{user}", "[user]") if bot_data.personality_conversational_goals else "",
+        "personality_conversational_examples": bot_data.personality_conversational_examples.replace("{user}", "[user]") if bot_data.personality_conversational_examples else "",
+        "character_scenario": bot_data.character_scenario,
+        "free_will": bot_data.free_will,
+        "free_will_instruction": bot_data.free_will_instruction,
+        "jailbreak": bot_data.jailbreak,
+        "add_character_name": bot_data.add_character_name,
+        "reply_to_name": bot_data.reply_to_name,
+        "always_reply_mentions": bot_data.always_reply_mentions,
+        "use_tts": bot_data.use_tts,
+        "data_dir": "character_data",
+        "api_settings": {
+            "base_url": bot_data.api_base_url,
+            "api_key": bot_data.api_key,
+            "chat_model": bot_data.chat_model,
+            "tts_model": bot_data.tts_model,
+            "tts_voice": bot_data.tts_voice,
+        },
+        "activated_channels": [],
+        "blacklisted_users": [],
+        "blacklisted_roles": [],
+        "conversation_timeout": 30,
+    }
+    
+    # Create bot config directory and save config.json
+    bot_dir = bot_manager.get_bot_config_dir(current_user.id, bot_name)
+    config_path = os.path.join(bot_dir, "character_config.json")
+    
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+    
+    # Start the bot
+    container_result = await bot_manager.container_manager.start_bot_container(
+        current_user.id, bot_name, bot_dir
+    )
+    
+    if not container_result[0]:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=container_result[1]
+        )
+    
+    await bot_manager.container_manager.refresh_bot_list()
+    
+    # Store bot information in database
+    bot_document = {
+        "name": bot_name,
+        "owner_id": current_user.id,
+        "description": f"AI Character: {bot_data.character_name}",
+        "created_at": datetime.utcnow(),
+    }
+    
+    result = bots_collection.insert_one(bot_document)
+    
+    # Deduct a credit from the user
+    users_collection.update_one(
+        {"id": current_user.id},
+        {"$inc": {"bot_credits": -1}}
+    )
+    
+    return {
+        "id": str(result.inserted_id),
+        "message": f"Bot {bot_name} created and started successfully"
+    }
 
 @app.get("/api/bots/{bot_id}")
 async def get_bot(bot_id: str, current_user: User = Depends(get_current_user)):
