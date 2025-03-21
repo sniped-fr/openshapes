@@ -4,33 +4,16 @@ import os
 import uuid
 
 def parse_shapes_data(shapes_json_path, brain_json_path=None):
-    """
-    Parse shapes.json and brain.json into character_config.json, memory.json, and lorebook.json
-    
-    Args:
-        shapes_json_path: Path to shapes.json
-        brain_json_path: Path to brain.json (optional)
-    
-    Returns:
-        Dictionary containing the parsed data structures
-    """
-    # Load shapes data
     with open(shapes_json_path, 'r', encoding='utf-8') as f:
         shapes_data = json.load(f)
     
-    # Load brain data if provided
     brain_data = []
     if brain_json_path and os.path.exists(brain_json_path):
         with open(brain_json_path, 'r', encoding='utf-8') as f:
             brain_data = json.load(f)
     
-    # Parse character_config.json
     character_config = create_character_config(shapes_data)
-    
-    # Parse memory.json from brain data
     memory_data = create_memory_json(brain_data, shapes_data)
-    
-    # Parse lorebook.json from brain data
     lorebook_data = create_lorebook_json(brain_data)
     
     return {
@@ -40,25 +23,17 @@ def parse_shapes_data(shapes_json_path, brain_json_path=None):
     }
 
 def create_character_config(shapes_data):
-    """Create character_config.json from shapes_data"""
-    # Extract discord bot information
-    discord_bot_id = None
-    discord_bot_token = "NOT_PROVIDED"  # Default placeholder
+    discord_bot_token = "NOT_PROVIDED"
     
     if "app_info" in shapes_data and "full_data" in shapes_data["app_info"]:
         app_data = shapes_data["app_info"]["full_data"]
-        if "bot" in app_data and "id" in app_data["bot"]:
-            discord_bot_id = app_data["bot"]["id"]
         
-        # Get owner info
         owner_id = None
         if "owner" in app_data and "id" in app_data["owner"]:
             owner_id = int(app_data["owner"]["id"])
     
-    # Get character information
     character_name = shapes_data.get("name", "Unknown")
     
-    # Extract personality traits
     user_prompt = shapes_data.get("user_prompt", "")
     personality_catchphrases = shapes_data.get("personality_catchphrases", None)
     personality_age = shapes_data.get("personality_age", "Unknown age")
@@ -75,12 +50,6 @@ def create_character_config(shapes_data):
     free_will_instruction = shapes_data.get("free_will_instruction", "")
     jailbreak = shapes_data.get("jailbreak", "")
     
-    # Construct initial message
-    initial_message = ""
-    if "shape_settings" in shapes_data and "shape_initial_message" in shapes_data["shape_settings"]:
-        initial_message = shapes_data["shape_settings"]["shape_initial_message"]
-    
-    # Construct system prompt
     system_prompt = f"You are {character_name}. "
     
     if personality_history:
@@ -92,7 +61,6 @@ def create_character_config(shapes_data):
     if personality_tone:
         system_prompt += f"Your tone is {personality_tone}. "
     
-    # Create character description
     character_description = f"{character_name} "
     if personality_physical_traits:
         character_description += f"has {personality_physical_traits}. "
@@ -100,12 +68,10 @@ def create_character_config(shapes_data):
     if "shape_settings" in shapes_data and "appearance" in shapes_data["shape_settings"]:
         character_description += shapes_data["shape_settings"]["appearance"]
     
-    # Character scenario
     character_scenario = ""
     if personality_conversational_goals:
         character_scenario = personality_conversational_goals.replace("{user}", "[user]")
     
-    # Create the character config object
     config = {
         "bot_token": discord_bot_token,
         "owner_id": owner_id,
@@ -151,19 +117,16 @@ def create_character_config(shapes_data):
     return config
 
 def create_memory_json(brain_data, shapes_data):
-    """Create memory.json from brain_data"""
     memory = {}
     current_time = datetime.datetime.now().isoformat()
     character_name = shapes_data.get("name", "Unknown")
     
-    # Add basic character information to memory
     memory[f"{character_name}'s Identity"] = {
         "detail": f"{character_name} is a character with a unique personality",
         "source": "Character Configuration",
         "timestamp": current_time
     }
     
-    # Extract personality details for memory
     if shapes_data.get("personality_traits"):
         memory[f"{character_name}'s Traits"] = {
             "detail": shapes_data.get("personality_traits"),
@@ -178,7 +141,6 @@ def create_memory_json(brain_data, shapes_data):
             "timestamp": current_time
         }
     
-    # Process brain data
     for entry in brain_data:
         if entry["story_type"] == "general" and entry["content"] != "Insert general knowledge here":
             memory_key = f"General Knowledge {str(uuid.uuid4())[:8]}"
@@ -215,62 +177,46 @@ def create_memory_json(brain_data, shapes_data):
     return memory
 
 def create_lorebook_json(brain_data):
-    """Create lorebook.json from brain_data"""
     lorebook = []
     
-    # Extract lore entries from brain data
     for entry in brain_data:
-        # Skip default/template entries
         if (entry["story_type"] == "general" and entry["content"] != "Insert general knowledge here") or \
            (entry["story_type"] == "personal" and entry["content"] != "Insert \"personal\" custom added sorting option for knowledge here"):
             
-            # Create a meaningful title based on the first few words of content
             content = entry["content"]
             title = " ".join(content.split()[:5]) + "..." if len(content.split()) > 5 else content
             
-            # Add to lorebook with the title as key and value
             lorebook.append({title: content})
     
     return lorebook
 
 def save_json_files(parsed_data, output_dir="."):
-    """Save the parsed data to JSON files"""
-    # Create the output directory and the character_data subdirectory
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(os.path.join(output_dir, "character_data"), exist_ok=True)
     
-    # Save character_config.json
     with open(os.path.join(output_dir, "character_config.json"), 'w', encoding='utf-8') as f:
         json.dump(parsed_data["character_config"], f, indent=2)
     
-    # Save memory.json
     with open(os.path.join(output_dir, "character_data", "memory.json"), 'w', encoding='utf-8') as f:
         json.dump(parsed_data["memory"], f, indent=2)
     
-    # Save lorebook.json
     with open(os.path.join(output_dir, "character_data", "lorebook.json"), 'w', encoding='utf-8') as f:
         json.dump(parsed_data["lorebook"], f, indent=2)
     
     print(f"Files saved to {output_dir}")
 
 def main():
-    # Get file paths from user with defaults to current directory
     shapes_json_path = input("Enter the path to shapes.json (or press Enter for './shapes.json'): ") or "./shapes.json"
     brain_json_path = input("Enter the path to brain.json (or press Enter for './brain.json'): ") or "./brain.json"
     output_dir = input("Enter the output directory (or press Enter for current directory): ") or "."
     
-    # Check if brain.json exists, set to None if it doesn't
     if not os.path.exists(brain_json_path):
         print(f"Note: {brain_json_path} not found. Proceeding without brain data.")
         brain_json_path = None
     
     try:
-        # Parse data
         parsed_data = parse_shapes_data(shapes_json_path, brain_json_path)
-        
-        # Save to files
         save_json_files(parsed_data, output_dir)
-        
         print("Conversion completed successfully!")
     except FileNotFoundError as e:
         print(f"Error: File not found - {e}")

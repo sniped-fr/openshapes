@@ -1,48 +1,31 @@
 import logging
 import os
-from typing import Optional, Any, Dict, List
-import time
 import uuid
+from typing import Optional, Any
 
-# Configure logging with more detail
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger("openshape.chroma_integration")
 
-# Default path for shared database
 DEFAULT_SHARED_DB_PATH = os.path.join(os.getcwd(), "shared_memory")
 
 def setup_memory_system(bot, shared_db_path: str = DEFAULT_SHARED_DB_PATH) -> Optional[Any]:
-    """
-    Set up ChromaDB memory system for the bot, completely replacing the old memory system.
-    
-    Args:
-        bot: The OpenShape bot instance
-        shared_db_path: Path to the shared ChromaDB database
-        
-    Returns:
-        ChromaMemoryManager: The initialized memory manager or None if setup failed
-    """
     try:
-        # Make sure the bot has a consistent ID for database collections
         if not hasattr(bot, 'bot_id'):
-            # Generate from user.id if available or use a UUID
             if hasattr(bot, 'user') and hasattr(bot.user, 'id'):
                 bot.bot_id = f"bot_{bot.user.id}"
             else:
-                # For initialization before the bot is fully logged in
                 bot.bot_id = f"bot_{uuid.uuid4()}"
             
             logger.info(f"Assigned bot ID: {bot.bot_id}")
         
-        # Import here to delay until needed (allows recovery if import fails)
         from .vector_memory import ChromaMemoryManager
         
-        # Initialize memory manager with shared database path
         memory_manager = ChromaMemoryManager(bot, shared_db_path)
         logger.info(f"Initialized ChromaDB memory manager for {bot.character_name}")
         
-        # Replace memory-related methods on the bot object
         bot.add_memory = memory_manager.add_memory
         bot.remove_memory = memory_manager.remove_memory
         bot.clear_memories = memory_manager.clear_memories
@@ -52,10 +35,7 @@ def setup_memory_system(bot, shared_db_path: str = DEFAULT_SHARED_DB_PATH) -> Op
         bot.format_memories_for_display = memory_manager.format_memories_for_display
         bot.update_memory = memory_manager.update_memory 
         
-        # Store direct reference to the memory manager
         bot.memory_manager = memory_manager
-        
-        # For backwards compatibility only, not actually used anymore
         bot.long_term_memory = {}
         
         return memory_manager
@@ -63,7 +43,6 @@ def setup_memory_system(bot, shared_db_path: str = DEFAULT_SHARED_DB_PATH) -> Op
     except Exception as e:
         logger.error(f"Failed to set up ChromaDB memory system: {e}")
         
-        # Create fallback memory methods
         def fallback_search(*args, **kwargs):
             logger.warning("Using fallback memory search because ChromaDB setup failed")
             return []
@@ -91,7 +70,6 @@ def setup_memory_system(bot, shared_db_path: str = DEFAULT_SHARED_DB_PATH) -> Op
         def fallback_format(*args, **kwargs):
             return "**Memory System Error**\nCould not initialize ChromaDB memory system."
         
-        # Assign fallback methods
         bot.add_memory = fallback_add
         bot.remove_memory = fallback_remove
         bot.clear_memories = fallback_clear
@@ -100,39 +78,29 @@ def setup_memory_system(bot, shared_db_path: str = DEFAULT_SHARED_DB_PATH) -> Op
         bot.update_memory_from_conversation = fallback_update
         bot.format_memories_for_display = fallback_format
         
-        # Create a simple dictionary-based memory for fallback
         bot.long_term_memory = {}
         
-        # Return None to indicate failure
         return None
 
 
 class MemoryCommand:
-    """Handles the memory command functionality"""
-    
     @staticmethod
     async def execute(bot, interaction):
-        """Execute the memory command with ChromaDB integration"""
         try:
             guild_id = str(interaction.guild.id) if interaction.guild else "global"
             
-            # Import necessary Discord UI classes
             import discord
             
-            # Define the pagination view class
             class PaginationView(discord.ui.View):
                 def __init__(self, chunks):
-                    super().__init__(timeout=180)  # 3 minute timeout
+                    super().__init__(timeout=180)
                     self.chunks = chunks
                     self.current_page = 0
                     
-                    # Set initial button states
                     self.update_button_states()
                     
                 def update_button_states(self):
-                    # Disable previous button on first page
                     self.children[0].disabled = (self.current_page == 0)
-                    # Disable next button on last page
                     self.children[1].disabled = (self.current_page == len(self.chunks) - 1)
                     
                 @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary)
@@ -155,20 +123,16 @@ class MemoryCommand:
                         view=self
                     )
 
-            # Only allow the owner to manage memories
             if interaction.user.id != bot.owner_id:
                 memory_display = bot.format_memories_for_display(guild_id)
                 
-                # If content fits in one message, send it directly
                 if len(memory_display) <= 2000:
                     await interaction.response.send_message(memory_display, ephemeral=True)
                 else:
                     await interaction.response.defer(ephemeral=True)
                     
-                    # Split memory display into chunks of 1900 characters
                     chunks = [memory_display[i:i+1900] for i in range(0, len(memory_display), 1900)]
                     
-                    # Create pagination view and send first page
                     view = PaginationView(chunks)
                     await interaction.followup.send(
                         f"{chunks[0]}\n\n(Page 1/{len(chunks)})", 
@@ -177,6 +141,7 @@ class MemoryCommand:
                     )
                 
                 return
+            
             class MemoryManagementView(discord.ui.View):
                 def __init__(self, bot_instance):
                     super().__init__()
@@ -184,13 +149,11 @@ class MemoryCommand:
                     
                 @discord.ui.button(label="Add Memory", style=discord.ButtonStyle.primary)
                 async def add_memory(self, button_interaction: discord.Interaction, button: discord.ui.Button):
-                    # Create modal for adding memory
                     modal = MemoryAddModal(self.bot)
                     await button_interaction.response.send_modal(modal)
                 
                 @discord.ui.button(label="Edit Memory", style=discord.ButtonStyle.secondary)
                 async def edit_memory(self, button_interaction: discord.Interaction, button: discord.ui.Button):
-                    # First, get all memories to display in a select menu
                     try:
                         collection = self.bot.memory_manager.get_collection_for_guild(guild_id)
                         results = collection.get()
@@ -199,7 +162,6 @@ class MemoryCommand:
                             await button_interaction.response.send_message("No memories available to edit.", ephemeral=True)
                             return
                             
-                        # Create modal for selecting which memory to edit
                         modal = MemorySelectModal(self.bot, results)
                         await button_interaction.response.send_modal(modal)
                         
@@ -209,7 +171,6 @@ class MemoryCommand:
             
                 @discord.ui.button(label="Clear All Memory", style=discord.ButtonStyle.danger)
                 async def clear_memory(self, button_interaction: discord.Interaction, button: discord.ui.Button):
-                    # Create confirm view
                     confirm_view = discord.ui.View()
                     
                     confirm_button = discord.ui.Button(label="Yes, Clear All Memories", style=discord.ButtonStyle.danger)
@@ -253,19 +214,16 @@ class MemoryCommand:
                     self.add_item(self.details_input)
                 
                 async def on_submit(self, modal_interaction):
-                    # First, defer the response since ChromaDB operations might take time
                     await modal_interaction.response.defer(ephemeral=True)
                     
                     topic = self.topic_input.value
                     details = self.details_input.value
                     source = interaction.user.display_name
                     
-                    # Add memory
                     success = self.bot.add_memory(topic, details, source, guild_id)
                     
                     try:
                         if success:
-                            # Use followup instead of response.send_message since we've deferred
                             await modal_interaction.followup.send(
                                 f"Added memory: {topic} (from {source})", ephemeral=True
                             )
@@ -274,11 +232,9 @@ class MemoryCommand:
                                 "Failed to add memory. Check console for errors.", ephemeral=True
                             )
                     except Exception as e:
-                        # This might happen if the followup also times out
                         import logging
                         logger = logging.getLogger("openshape.chroma_integration")
                         logger.error(f"Error responding to interaction: {e}")
-                        # No need to re-raise, the memory was still added successfully
             
             class MemorySelectModal(discord.ui.Modal):
                 def __init__(self, bot_instance, memory_results):
@@ -286,13 +242,11 @@ class MemoryCommand:
                     self.bot = bot_instance
                     self.memories = []
                     
-                    # Process memory results
                     for i, metadata in enumerate(memory_results['metadatas']):
                         topic = metadata.get('topic', 'Unknown Topic')
                         detail = metadata.get('detail', '')
                         self.memories.append((topic, detail))
                     
-                    # Create a select menu of topics
                     topics = [memory[0] for memory in self.memories]
                     topic_options = "\n".join([f"{i+1}. {topic}" for i, topic in enumerate(topics)])
                     
@@ -314,7 +268,6 @@ class MemoryCommand:
                 
                 async def on_submit(self, modal_interaction):
                     try:
-                        # Parse the selected memory number
                         try:
                             selection = int(self.topic_select.value) - 1
                             if selection < 0 or selection >= len(self.memories):
@@ -330,11 +283,8 @@ class MemoryCommand:
                             )
                             return
                             
-                        # Get the selected memory
                         selected_topic, selected_detail = self.memories[selection]
                         
-                        # Instead of sending a modal directly, send a message with a button
-                        # that will then show the edit modal when clicked
                         view = discord.ui.View()
                         edit_button = discord.ui.Button(label=f"Edit: {selected_topic}", style=discord.ButtonStyle.primary)
                         
@@ -352,7 +302,6 @@ class MemoryCommand:
                         )
                         
                     except Exception as e:
-                        # Import logger here to avoid the scope issue
                         import logging
                         logger = logging.getLogger("openshape.chroma_integration")
                         logger.error(f"Error in memory selection: {e}")
@@ -385,18 +334,13 @@ class MemoryCommand:
                     self.add_item(self.details_input)
                 
                 async def on_submit(self, modal_interaction):
-                    # First, defer the response since ChromaDB operations might take time
                     await modal_interaction.response.defer(ephemeral=True)
                     
                     new_topic = self.topic_input.value
                     new_detail = self.details_input.value
                     source = modal_interaction.user.display_name
                     
-                    # Handle topic change - if topic changed, we need to remove old and add new
                     if new_topic != self.original_topic:
-                        # Remove old memory
-                        removed = self.bot.remove_memory(self.original_topic, self.guild_id)
-                        # Add as new memory
                         success = self.bot.add_memory(new_topic, new_detail, source, self.guild_id)
                         
                         if success:
@@ -410,12 +354,9 @@ class MemoryCommand:
                                 ephemeral=True
                             )
                     else:
-                        # Just update the detail
                         if hasattr(self.bot, 'update_memory'):
                             success = self.bot.update_memory(new_topic, new_detail, source, self.guild_id)
                         else:
-                            # Fallback if update_memory isn't available
-                            removed = self.bot.remove_memory(self.original_topic, self.guild_id)
                             success = self.bot.add_memory(new_topic, new_detail, source, self.guild_id)
                         
                         if success:
@@ -429,32 +370,25 @@ class MemoryCommand:
                                 ephemeral=True
                             )
                         
-
-            # Display memories with management view for bot owner
             view = MemoryManagementView(bot)
             memory_display = bot.format_memories_for_display(guild_id)
             
             if len(memory_display) <= 2000:
                 await interaction.response.send_message(memory_display, view=view, ephemeral=True)
             else:
-                # Use pagination for larger content
                 await interaction.response.defer(ephemeral=True)
                 
-                # Split memory display into chunks of 1900 characters
                 chunks = [memory_display[i:i+1900] for i in range(0, len(memory_display), 1900)]
                 
-                # Create combined view with pagination and memory management
                 class CombinedView(PaginationView):
                     def __init__(self, chunks, bot_instance):
                         super().__init__(chunks)
                         self.bot = bot_instance
                         
-                        # Add memory management buttons
                         add_button = discord.ui.Button(label="Add Memory", style=discord.ButtonStyle.primary, row=1)
                         edit_button = discord.ui.Button(label="Edit Memory", style=discord.ButtonStyle.secondary, row=1)
                         clear_button = discord.ui.Button(label="Clear All Memory", style=discord.ButtonStyle.danger, row=1)
                         
-                        # Callbacks for the management buttons
                         async def add_callback(button_interaction):
                             modal = MemoryAddModal(self.bot)
                             await button_interaction.response.send_modal(modal)
@@ -508,7 +442,6 @@ class MemoryCommand:
                         self.add_item(edit_button)
                         self.add_item(clear_button)
                 
-                # Create combined view and send first page
                 combined_view = CombinedView(chunks, bot)
                 await interaction.followup.send(
                     f"{chunks[0]}\n\n(Page 1/{len(chunks)})",
@@ -521,29 +454,24 @@ class MemoryCommand:
             logger = logging.getLogger("openshape.chroma_integration")
             logger.error(f"Error in memory command: {e}")
             
-            # Try to respond to the interaction if possible
             try:
                 if not interaction.response.is_done():
                     await interaction.response.send_message(
                         "An error occurred while accessing the memory system. Check logs for details.",
                         ephemeral=True
                     )
-            except:
-                pass  # If this also fails, just log and continue
+            except Exception:
+                pass
 
 class SleepCommand:
-    """Handles the sleep command functionality"""
-    
     @staticmethod
     async def execute(bot, interaction):
-        """Execute the sleep command to extract memories from recent conversations"""
         if interaction.user.id != bot.owner_id:
             await interaction.response.send_message(
                 "Only the bot owner can use this command", ephemeral=True
             )
             return
         
-        # Always defer first to prevent interaction timeouts
         await interaction.response.defer(thinking=True)
         
         guild_id = str(interaction.guild.id) if interaction.guild else "global"
@@ -551,14 +479,11 @@ class SleepCommand:
         try:
             await interaction.followup.send(f"{bot.character_name} is analyzing recent conversations and going to sleep...")
         
-            # Fetch recent messages from the channel (up to 30)
             recent_messages = []
             async for message in interaction.channel.history(limit=30):
-                # Skip system messages and bot's own messages that aren't the current bot
                 if message.author.bot and message.author.id != bot.user.id:
                     continue
                 
-                # Add message to our list
                 recent_messages.append({
                     "author": message.author.display_name,
                     "content": message.content,
@@ -570,16 +495,13 @@ class SleepCommand:
                 await interaction.followup.send("No recent messages found to analyze.")
                 return
                 
-            # Sort messages by timestamp (oldest first)
             recent_messages.sort(key=lambda m: m["timestamp"])
             
-            # Group messages by author over short time spans
             batched_conversations = []
             current_batch = []
             last_author = None
             
             for msg in recent_messages:
-                # If this is a new author or the batch is getting too big, start a new batch
                 if last_author != msg["author"] or len(current_batch) >= 5:
                     if current_batch:
                         batched_conversations.append(current_batch)
@@ -589,42 +511,33 @@ class SleepCommand:
                 
                 last_author = msg["author"]
             
-            # Add the final batch if it exists
             if current_batch:
                 batched_conversations.append(current_batch)
             
-            # Now process each batch to extract memories
             memories_created = 0
             
             for batch in batched_conversations:
-                # Skip if this is just the bot talking
                 if all(msg["author"] == bot.character_name for msg in batch):
                     continue
                 
-                # Construct a conversation to analyze
                 conversation_content = ""
                 for msg in batch:
                     conversation_content += f"{msg['author']}: {msg['content']}\n"
                 
-                # Check if this conversation has substance
                 if len(conversation_content.split()) < 10:
                     continue
                 
                 try:
-                    # Extract memories from this conversation batch
                     created = await bot.extract_memories_from_text(conversation_content, guild_id)
                     memories_created += created
                 except Exception as batch_error:
                     import logging
                     logger = logging.getLogger("openshape.chroma_integration")
                     logger.error(f"Error processing conversation batch: {batch_error}")
-                    # Continue to next batch rather than failing entirely
                 
-                # Add a small delay to avoid rate limits
                 import asyncio
                 await asyncio.sleep(0.5)
             
-            # Send a summary of what happened
             if memories_created > 0:
                 response = f"{bot.character_name} has processed the recent conversations and created {memories_created} new memories!"
             else:
@@ -639,9 +552,8 @@ class SleepCommand:
             
             try:
                 await interaction.followup.send(f"Something went wrong while processing recent messages: {str(e)[:100]}...")
-            except:
-                # If interaction is already timed out, try sending a direct message
+            except Exception:
                 try:
                     await interaction.channel.send(f"Error during sleep command: {str(e)[:100]}...")
-                except:
-                    pass  # At this point, just log the error and continue
+                except Exception:
+                    pass
