@@ -16,7 +16,7 @@ from bson.objectid import ObjectId
 import dotenv
 from datetime import datetime, timedelta
 import secrets, psutil
-import jwt
+import jwt, re
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from models import *
@@ -480,8 +480,11 @@ async def create_bot(bot_data: DirectBotCreate, current_user: User = Depends(get
     bot_document = {
         "name": bot_name,
         "owner_id": current_user.id,
-        "description": f"AI Character: {bot_data.character_name}",
+        "config": config,
+        "container_id": re.search(r"Container (.+?) started", container_result[1]).group(1),
+        "status": "running",
         "created_at": datetime.utcnow(),
+        "last_updated": datetime.utcnow(),
     }
     
     result = bots_collection.insert_one(bot_document)
