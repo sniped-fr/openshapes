@@ -82,7 +82,6 @@ def setup_memory_system(bot, shared_db_path: str = DEFAULT_SHARED_DB_PATH) -> Op
         
         return None
 
-
 class MemoryCommand:
     @staticmethod
     async def execute(bot, interaction):
@@ -123,7 +122,7 @@ class MemoryCommand:
                         view=self
                     )
 
-            if interaction.user.id != bot.owner_id:
+            if interaction.user.id != bot.config_manager.get("owner_id"):
                 memory_display = bot.format_memories_for_display(guild_id)
                 
                 if len(memory_display) <= 2000:
@@ -148,12 +147,12 @@ class MemoryCommand:
                     self.bot = bot_instance
                     
                 @discord.ui.button(label="Add Memory", style=discord.ButtonStyle.primary)
-                async def add_memory(self, button_interaction: discord.Interaction, button: discord.ui.Button):
+                async def add_memory(self, button_interaction: discord.Interaction, _: discord.ui.Button):
                     modal = MemoryAddModal(self.bot)
                     await button_interaction.response.send_modal(modal)
                 
                 @discord.ui.button(label="Edit Memory", style=discord.ButtonStyle.secondary)
-                async def edit_memory(self, button_interaction: discord.Interaction, button: discord.ui.Button):
+                async def edit_memory(self, button_interaction: discord.Interaction, _: discord.ui.Button):
                     try:
                         collection = self.bot.memory_manager.get_collection_for_guild(guild_id)
                         results = collection.get()
@@ -170,7 +169,7 @@ class MemoryCommand:
                         await button_interaction.response.send_message("Failed to retrieve memories for editing.", ephemeral=True)
             
                 @discord.ui.button(label="Clear All Memory", style=discord.ButtonStyle.danger)
-                async def clear_memory(self, button_interaction: discord.Interaction, button: discord.ui.Button):
+                async def clear_memory(self, button_interaction: discord.Interaction, _: discord.ui.Button):
                     confirm_view = discord.ui.View()
                     
                     confirm_button = discord.ui.Button(label="Yes, Clear All Memories", style=discord.ButtonStyle.danger)
@@ -466,7 +465,7 @@ class MemoryCommand:
 class SleepCommand:
     @staticmethod
     async def execute(bot, interaction):
-        if interaction.user.id != bot.owner_id:
+        if interaction.user.id != bot.config_manager.get("owner_id"):
             await interaction.response.send_message(
                 "Only the bot owner can use this command", ephemeral=True
             )

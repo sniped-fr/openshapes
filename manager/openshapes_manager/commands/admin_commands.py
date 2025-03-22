@@ -14,7 +14,6 @@ def setup_admin_commands(bot, admin_commands):
             return
 
         await bot.refresh_bot_list()
-        # Fix: Access active_bots through container_manager
         total_bots = sum(len(bots) for bots in bot.container_manager.active_bots.values())
 
         if total_bots == 0:
@@ -27,7 +26,6 @@ def setup_admin_commands(bot, admin_commands):
             color=discord.Color.blue(),
         )
 
-        # Fix: Access active_bots through container_manager
         for user_id, bots in bot.container_manager.active_bots.items():
             try:
                 user = await bot.fetch_user(int(user_id))
@@ -61,7 +59,6 @@ def setup_admin_commands(bot, admin_commands):
             return
 
         try:
-            # Fix: Access docker_client through container_manager
             info = bot.container_manager.docker_client.info()
 
             containers = bot.container_manager.docker_client.containers.list()
@@ -107,7 +104,6 @@ def setup_admin_commands(bot, admin_commands):
                 inline=True,
             )
 
-            # Fix: Access active_bots through container_manager
             embed.add_field(
                 name="OpenShapes",
                 value=f"Total bots: {sum(len(bots) for bots in bot.container_manager.active_bots.values())}\n"
@@ -177,7 +173,6 @@ def setup_admin_commands(bot, admin_commands):
             return
 
         try:
-            # Fix: Access active_bots through container_manager
             all_bots = bot.container_manager.active_bots.get(user_id, {})
             if bot_name not in all_bots:
                 await interaction.followup.send(
@@ -186,7 +181,6 @@ def setup_admin_commands(bot, admin_commands):
                 return
 
             container_id = all_bots[bot_name]["container_id"]
-            # Fix: Access docker_client through container_manager
             container = bot.container_manager.docker_client.containers.get(container_id)
             container.kill()
 
@@ -216,29 +210,6 @@ def setup_admin_commands(bot, admin_commands):
             await interaction.followup.send(f"✅ {message}")
         else:
             await interaction.followup.send(f"❌ {message}")
-
-    @admin_commands.command(
-        name="update", description="Update OpenShapes base image (admin only)"
-    )
-    async def admin_update_command(interaction: discord.Interaction):
-        await interaction.response.defer(thinking=True)
-        if not bot.is_admin(interaction):
-            await interaction.followup.send(
-                "❌ You don't have permission to use admin commands", ephemeral=True
-            )
-            return
-
-        try:
-            # Fix: Access docker_client through container_manager
-            image = bot.container_manager.docker_client.images.pull(bot.config["docker_base_image"])
-            bot.logger.info(f"Updated base image: {image.id}")
-            await interaction.followup.send(f"✅ Base image updated to: {image.id}")
-
-        except Exception as e:
-            bot.logger.error(f"Error updating base image: {e}")
-            await interaction.followup.send(
-                f"❌ Error updating base image: {str(e)}"
-            )
 
     @admin_commands.command(
         name="add-admin", description="Add a user to admin list (admin only)"

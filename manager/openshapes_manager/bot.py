@@ -1,10 +1,10 @@
 import discord
-from discord.ext import commands, tasks
 import asyncio
 import os
 import json
 import nest_asyncio
 import dotenv
+from discord.ext import commands, tasks
 
 try:
     from .utils import setup_logger, create_required_directories
@@ -16,11 +16,10 @@ except ImportError:
     from commands import setup_commands
 
 nest_asyncio.apply()
-
-dotenv.load_dotenv()
+dotenv.load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env")))
 
 BOT_CONFIG_FILE = "manager_config.json"
-DIR = os.path.dirname(os.path.abspath(__file__))
+DIR = os.path.dirname(__file__)
 
 class OpenShapesManager(commands.Bot):
     def __init__(self):
@@ -29,23 +28,17 @@ class OpenShapesManager(commands.Bot):
 
         self.logger = setup_logger()
         self.config = self._load_config()
-        print(self.config)
+
         self.container_manager = ContainerManager(self.logger, self.config)
-        
-        # Add this property to ensure backward compatibility
-        # This property delegates to container_manager's active_bots
-        # So any code that relies on self.active_bots will still work
-        
+
         if self.config:
             create_required_directories(self.config["data_dir"])
 
         self.bg_tasks = []
         self.monitor_task = asyncio.run(self._create_monitor_task())
 
-    # Property to delegate active_bots access to container_manager
     @property
     def active_bots(self):
-        # Make sure container_manager is initialized
         if not hasattr(self, 'container_manager') or self.container_manager is None:
             self.logger.warning("Container manager not initialized, returning empty dict for active_bots")
             return {}
@@ -59,19 +52,17 @@ class OpenShapesManager(commands.Bot):
                     return json.load(f)
             except Exception as e:
                 self.logger.error(f"Error loading config: {e}")
-        
-        # Create default configuration
+
         default_config = {
-            "data_dir": "openshapes_data",
+            "data_dir": "data",
             "max_bots_per_user": 5,
             "admin_users": [],
             "admin_roles": [],
-            "docker_base_image": "openshapes:latest"
+            "docker_base_image": os.environ.get("DOCKER_BASE_IMAGE")
         }
         
         self.logger.warning("No configuration found, using default settings")
-        
-        # Save the default config
+
         try:
             with open(os.path.join(DIR, BOT_CONFIG_FILE), "w") as f:
                 json.dump(default_config, f, indent=2)
@@ -153,11 +144,6 @@ class OpenShapesManager(commands.Bot):
         os.makedirs(config_dir, exist_ok=True)
         return config_dir
 
-    def get_bot_log_file(self, user_id: str, bot_name: str) -> str:
-        log_dir = os.path.join(self.config["data_dir"], "logs")
-        os.makedirs(log_dir, exist_ok=True)
-        return os.path.join(log_dir, f"{user_id}_{bot_name}.log")
-
     async def create_bot(self, user_id, bot_name, config_json, bot_token, brain_json=None):
         try:
             if not bot_name.replace("_", "").isalnum():
@@ -201,7 +187,6 @@ class OpenShapesManager(commands.Bot):
                 with open(os.path.join(bot_dir, "brain.json"), "w") as f:
                     json.dump(brain_data, f, indent=2)
 
-            # Get parser source from scripts directory
             parser_source = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "parser.py"
             )
@@ -220,6 +205,7 @@ class OpenShapesManager(commands.Bot):
                     char_config = json.load(f)
 
                 char_config["bot_token"] = bot_token
+                char_config["owner_id"] = user_id
 
                 with open(config_path, "w") as f:
                     json.dump(char_config, f, indent=2)
@@ -262,17 +248,15 @@ class OpenShapesManager(commands.Bot):
     async def get_bot_stats(self, user_id, bot_name):
         return await self.container_manager.get_bot_stats(user_id, bot_name)
 
-
 def main():
     bot = OpenShapesManager()
-    token = os.environ.get("token")
+    token = os.environ.get("DISCORD_BOT_TOKEN")
 
     if token == "YOUR_DISCORD_BOT_TOKEN":
         print("Please set your bot token in manager_config.json")
         return
 
     bot.run(token)
-
 
 if __name__ == "__main__":
     main()

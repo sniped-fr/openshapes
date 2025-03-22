@@ -5,12 +5,10 @@ import datetime
 from typing import Dict, Tuple, Any, Optional, Union
 from docker.models.containers import Container
 
-
 class DockerClientFactory:
     @staticmethod
     def create_client():
         return docker.from_env()
-
 
 class ContainerRegistry:
     def __init__(self):
@@ -34,7 +32,6 @@ class ContainerRegistry:
     def get_bot(self, user_id: str, bot_name: str) -> Optional[Dict[str, Any]]:
         user_bots = self.get_user_bots(user_id)
         return user_bots.get(bot_name)
-
 
 class ScriptBuilder:
     @staticmethod
@@ -60,7 +57,6 @@ except Exception as e:
     
     @staticmethod
     def create_bot_startup_script() -> str:
-        # Updated startup script to use bot/run.sh instead of the selfhost directory
         startup_script = "#!/bin/bash\n"
         startup_script += "# Create necessary directory structure\n"
         startup_script += "mkdir -p /app/bot/character_data\n\n"
@@ -84,7 +80,6 @@ except Exception as e:
         
         return startup_script
 
-
 class ContainerOperationResult:
     def __init__(self, success: bool, message: str, data: Any = None):
         self.success = success
@@ -93,7 +88,6 @@ class ContainerOperationResult:
     
     def to_tuple(self) -> Tuple[bool, Union[str, Any]]:
         return self.success, self.data if self.data is not None else self.message
-
 
 class ContainerOperationExecutor:
     def __init__(self, logger, docker_client, config: Dict[str, Any]):
@@ -114,7 +108,6 @@ class ContainerOperationExecutor:
         except Exception as e:
             self.logger.error(f"Error getting container {container_id}: {str(e)}")
             return None
-
 
 class ParserOperations(ContainerOperationExecutor):
     def __init__(self, logger, docker_client, config: Dict[str, Any]):
@@ -182,13 +175,13 @@ class ParserOperations(ContainerOperationExecutor):
                 image=self.config["docker_base_image"],
                 command="python run_parser.py",
                 volumes={
-                    os.path.abspath(bot_dir): {"bind": "/app/selfhost", "mode": "rw"}
+                    os.path.abspath(bot_dir): {"bind": "/app/bot", "mode": "rw"}
                 },
-                working_dir="/app/selfhost",
+                working_dir="/app/bot",
                 remove=False,
                 detach=True,
                 environment={
-                    "PYTHONPATH": "/app/selfhost"
+                    "PYTHONPATH": "/app/bot"
                 },
             )
         except Exception as e:
@@ -228,7 +221,6 @@ class ParserOperations(ContainerOperationExecutor):
         except Exception as e:
             self.logger.warning(f"Failed to remove temporary script: {e}")
 
-
 class BotContainerOperations(ContainerOperationExecutor):
     def __init__(self, logger, docker_client, config: Dict[str, Any], registry: ContainerRegistry):
         super().__init__(logger, docker_client, config)
@@ -256,8 +248,7 @@ class BotContainerOperations(ContainerOperationExecutor):
                 return False, f"Failed to start container {container_name}"
             
             self.logger.info(f"Started container {container_name} with ID {container.id}")
-            
-            # Store bot information in registry
+
             self.registry.register_bot(user_id, bot_name, {
                 "container_id": container.id,
                 "status": container.status,
@@ -290,7 +281,7 @@ class BotContainerOperations(ContainerOperationExecutor):
             "OPENSHAPE_BOT_NAME": bot_name,
             "OPENSHAPE_USER_ID": user_id,
             "OPENSHAPE_CONFIG_DIR": "/app/config",
-            "DEBUG": "false"  # Could be made configurable in the future
+            "DEBUG": "false"
         }
     
     def _create_startup_script(self, bot_dir: str) -> str:
@@ -329,7 +320,6 @@ class BotContainerOperations(ContainerOperationExecutor):
         except Exception as e:
             self.logger.error(f"Failed to launch bot container: {e}")
             return None
-
 
 class BotManagementOperations(ContainerOperationExecutor):
     def __init__(self, logger, docker_client, config: Dict[str, Any], registry: ContainerRegistry):
@@ -551,7 +541,6 @@ class BotManagementOperations(ContainerOperationExecutor):
             return str(uptime).split(".")[0]
         
         return "Unknown"
-
 
 class ContainerManager:
     def __init__(self, logger, config):

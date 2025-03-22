@@ -82,9 +82,9 @@ class TTSHandler:
         
     async def generate_tts(self, text: str) -> Optional[str]:
         if (
-            not self.bot.ai_client
-            or not self.bot.tts_model
-            or not self.bot.tts_voice
+            not self.bot.api_integration.client
+            or not self.bot.api_integration.tts_model
+            or not self.bot.api_integration.tts_voice
             or not self.bot.use_tts
         ):
             return None
@@ -104,8 +104,8 @@ class TTSHandler:
             if os.path.exists(filepath):
                 return filepath
 
-            response = await self.bot.ai_client.audio.speech.create(
-                model=self.bot.tts_model, voice=self.bot.tts_voice, input=speech_text
+            response = await self.bot.api_integration.client.audio.speech.create(
+                model=self.bot.api_integration.tts_model, voice=self.bot.api_integration.tts_voice, input=speech_text
             )
 
             response.stream_to_file(filepath)
@@ -117,9 +117,9 @@ class TTSHandler:
             
     async def generate_temp_tts(self, text: str) -> Optional[str]:
         if (
-            not self.bot.ai_client
-            or not self.bot.tts_model
-            or not self.bot.tts_voice
+            not self.bot.api_integration.client
+            or not self.bot.api_integration.tts_model
+            or not self.bot.api_integration.tts_voice
             or not self.bot.use_tts
         ):
             return None
@@ -132,8 +132,8 @@ class TTSHandler:
                 
             filepath = self.file_manager.get_temporary_filepath(self.bot.character_name)
 
-            response = await self.bot.ai_client.audio.speech.create(
-                model=self.bot.tts_model, voice=self.bot.tts_voice, input=speech_text
+            response = await self.bot.api_integration.client.audio.speech.create(
+                model=self.bot.api_integration.tts_model, voice=self.bot.api_integration.tts_voice, input=speech_text
             )
 
             response.stream_to_file(filepath)
@@ -233,7 +233,7 @@ class APIManager:
         relevant_info: Optional[List[str]] = None,
         system_prompt: Optional[str] = None,
     ) -> Optional[str]:
-        if not self.bot.ai_client or not self.bot.chat_model:
+        if not self.bot.api_integration.client or not self.bot.api_integration.chat_model:
             return None
 
         try:
@@ -251,8 +251,8 @@ class APIManager:
             if not conversation_history or user_message != conversation_history[-1].get("content", ""):
                 messages.append(MessageFormatter.format_user_message(user_name, user_message))
 
-            completion = await self.bot.ai_client.chat.completions.create(
-                model=self.bot.chat_model,
+            completion = await self.bot.api_integration.client.chat.completions.create(
+                model=self.bot.api_integration.chat_model,
                 messages=messages,
                 stream=False,
             )
@@ -273,7 +273,7 @@ class APIManager:
         if len(conversation_history) > 8:
             conversation_history = conversation_history[-8:]
         
-        if self.bot.ai_client and self.bot.chat_model:
+        if self.bot.api_integration.client and self.bot.api_integration.chat_model:
             response = await self.call_chat_api(
                 message_content,
                 user_name,
@@ -500,6 +500,8 @@ class OpenShapeHelpers:
         self._register_methods()
         
     def _register_methods(self) -> None:
+        self.bot._is_multipart_message = self.messages.is_multipart_message
+
         self.bot._generate_tts = self.tts.generate_tts
         self.bot._generate_temp_tts = self.tts.generate_temp_tts
         self.bot._disconnect_after_audio = self.tts.disconnect_after_audio
@@ -511,7 +513,11 @@ class OpenShapeHelpers:
         self.bot._send_long_message = self.messages.send_long_message
         self.bot._get_channel_conversation = self.messages.get_channel_conversation
         self.bot._save_conversation = self.messages.save_conversation
-        
+        self.bot._save_message_context = self.messages.save_message_context
+
+        self.bot._get_message_context = self.messages.get_message_context
+        self.bot._get_message_group = self.messages.get_message_group
+
         self.bot._get_relevant_lorebook_entries = self.lorebook.get_relevant_entries
         
         self.bot.tts_handler = self.tts

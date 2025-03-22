@@ -3,7 +3,6 @@ import json
 import logging
 import os
 from typing import Dict, Set, List, Any, Optional
-from discord import app_commands
 from discord.ext import commands
 from openai import AsyncOpenAI
 from vectordb.chroma_integration import setup_memory_system
@@ -11,31 +10,7 @@ from openshapes.utils.regex_extension import RegexManager
 from openshapes.utils.file_parser import FileParser
 from openshapes.utils.config_manager import ConfigManager
 from openshapes.utils.helpers import OpenShapeHelpers
-from openshapes.events.message_handler import on_message, on_reaction_add, OOCCommandHandler
-from openshapes.commands.basic_commands import (
-    character_info_command,
-    activate_command,
-    deactivate_command,
-    models_command
-)
-from openshapes.commands.personality_commands import (
-    edit_personality_traits_command,
-    edit_backstory_command,
-    edit_preferences_command
-)
-from openshapes.commands.memory_commands import sleep_command, memory_command
-from openshapes.commands.api_commands import api_settings_command
-from openshapes.commands.lorebook_commands import lorebook_command
-from openshapes.commands.settings_commands import (
-    settings_command,
-    edit_prompt_command,
-    edit_description_command,
-    edit_scenario_command,
-    blacklist_command,
-    save_command,
-    regex_command,
-    openshape_help_command
-)
+from openshapes.events.message_handler import MessageHandler, ReactionHandler, OOCCommandHandler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("openshape")
@@ -43,14 +18,31 @@ logger = logging.getLogger("openshape")
 class ConfigurationManager:
     def __init__(self, config_path: str):
         self.config_path = config_path
-        self.data = self._load_config()
-
-    def _load_config(self) -> Dict[str, Any]:
-        with open(self.config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        self.data = {}
+        self.load_config()
+    
+    def load_config(self) -> Dict[str, Any]:
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                self.data = json.load(f)
+                logger.info(f"Successfully loaded config from {self.config_path}")
+                return self.data
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in config file: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            return {}
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self.data
+
+    def update_field(self, key: str, value: Any) -> None:
+        self.data[key] = value
 
 class APIIntegration:
     def __init__(self, api_settings: Dict[str, str]):
@@ -133,178 +125,9 @@ class BehaviorSettings:
         self.conversation_timeout = config.get("conversation_timeout", 30)
         self.message_cooldown_seconds = 3
 
-class CommandRegistry:
-    def __init__(self, bot: commands.Bot, allowed_guilds: List[int]):
-        self.bot = bot
-        self.allowed_guilds = allowed_guilds
-        self.tree = bot.tree
-        
-    def register_global_commands(self) -> None:
-        self.tree.add_command(
-            app_commands.Command(
-                name="openshapes",
-                description="Get help and learn how to use OpenShape bot",
-                callback=openshape_help_command,
-            )
-        )
-        
-        self.tree.add_command(
-            app_commands.Command(
-                name="api_settings",
-                description="Configure AI API settings",
-                callback=api_settings_command,
-            ),
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="character_info",
-                description="Show information about this character",
-                callback=character_info_command,
-            )
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="activate",
-                description="Activate the bot to respond to all messages in the channel",
-                callback=activate_command,
-            )
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="deactivate",
-                description="Deactivate the bot's automatic responses in the channel",
-                callback=deactivate_command,
-            )
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="memory",
-                description="View or manage the character's memory",
-                callback=memory_command,
-            )
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="lorebook",
-                description="Manage lorebook entries",
-                callback=lorebook_command,
-            )
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="settings",
-                description="Manage character settings",
-                callback=settings_command,
-            )
-        )
-        
-        self.tree.add_command(
-            app_commands.Command(
-                name="models",
-                description="Change the AI model used by the bot",
-                callback=models_command,
-            )
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="edit_personality_traits",
-                description="Edit specific personality traits for the character",
-                callback=edit_personality_traits_command,
-            ),
-        )
-        
-        self.tree.add_command(
-            app_commands.Command(
-                name="edit_backstory",
-                description="Edit the character's history and background",
-                callback=edit_backstory_command,
-            ),
-        )
-        
-        self.tree.add_command(
-            app_commands.Command(
-                name="edit_preferences",
-                description="Edit what the character likes and dislikes",
-                callback=edit_preferences_command,
-            ),
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="sleep",
-                description="Generate a long term memory.",
-                callback=sleep_command,
-            ),
-        )
-
-        self.tree.add_command(
-            app_commands.Command(
-                name="regex",
-                description="Manage RegEx pattern scripts for text manipulation",
-                callback=regex_command,
-            )
-        )
-        
-    def register_guild_commands(self) -> None:
-        for guild_id in self.allowed_guilds:
-            guild = discord.Object(id=guild_id)
-
-            self.tree.add_command(
-                app_commands.Command(
-                    name="edit_prompt",
-                    description="Edit the character's system prompt",
-                    callback=edit_prompt_command,
-                ),
-                guild=guild,
-            )
-
-            self.tree.add_command(
-                app_commands.Command(
-                    name="edit_description",
-                    description="Edit the character's description",
-                    callback=edit_description_command,
-                ),
-                guild=guild,
-            )
-
-            self.tree.add_command(
-                app_commands.Command(
-                    name="edit_scenario",
-                    description="Edit the character's scenario",
-                    callback=edit_scenario_command,
-                ),
-                guild=guild,
-            )
-
-            self.tree.add_command(
-                app_commands.Command(
-                    name="blacklist",
-                    description="Add or remove a user from the blacklist",
-                    callback=blacklist_command,
-                ),
-                guild=guild,
-            )
-
-            self.tree.add_command(
-                app_commands.Command(
-                    name="save",
-                    description="Save all current settings and data",
-                    callback=save_command,
-                ),
-                guild=guild,
-            )
-
 class OpenShape(commands.Bot):
     def __init__(self, config_path: str, *args, **kwargs):
-        self.config_manager = ConfigurationManager(config_path)
-        self.character_config = self.config_manager.get("character_config", {})
+        self.config_manager = ConfigurationManager("/app/bot/character_config.json")
         intents = discord.Intents.all()
         
         super().__init__(
@@ -315,15 +138,17 @@ class OpenShape(commands.Bot):
         )
         
         self.config_path = config_path
-        self.owner_id = self.character_config.get("owner_id")
         
-        self.api_integration = APIIntegration(self.character_config.get("api_settings", {}))
-        self.personality = PersonalityProfile(self.character_config)
-        self.file_system = FileSystemManager(self.character_config.get("data_dir", "character_data"))
-        self.behavior = BehaviorSettings(self.character_config)
+        self.api_integration = APIIntegration(self.config_manager.get("api_settings", {}))
+        self.personality = PersonalityProfile(self.config_manager.to_dict())
+        self.file_system = FileSystemManager(self.config_manager.get("data_dir", "character_data"))
+        self.behavior = BehaviorSettings(self.config_manager.to_dict())
         
         self.channel_conversations = {}
         self.channel_last_message_time = {}
+
+        self._reaction_handler = ReactionHandler(self)
+        self._message_handler = MessageHandler(self)
 
         self._ooc_handler = OOCCommandHandler(self)
         self._handle_ooc_command = self._ooc_handler._handle_ooc_command
@@ -338,15 +163,7 @@ class OpenShape(commands.Bot):
         shared_db_path = os.path.join(os.getcwd(), "shared_memory")
         self.memory_manager = setup_memory_system(self, shared_db_path)
         self.regex_manager = RegexManager(self)
-        
-    @property
-    def api_settings(self) -> Dict[str, str]:
-        return self.api_integration.get_settings()
-        
-    @property
-    def ai_client(self) -> Optional[AsyncOpenAI]:
-        return self.api_integration.client
-        
+
     @property
     def base_url(self) -> str:
         return self.api_integration.base_url
@@ -498,14 +315,149 @@ class OpenShape(commands.Bot):
     @property
     def message_cooldown_seconds(self) -> int:
         return self.behavior.message_cooldown_seconds
-        
+
+    @character_name.setter
+    def character_name(self, value: str) -> None:
+        self.personality.name = value
+
+    @system_prompt.setter
+    def system_prompt(self, value: str) -> None:
+        self.personality.system_prompt = value
+
+    @character_backstory.setter
+    def character_backstory(self, value: str) -> None:
+        self.personality.backstory = value
+
+    @character_description.setter
+    def character_description(self, value: str) -> None:
+        self.personality.description = value
+
+    @character_scenario.setter
+    def character_scenario(self, value: str) -> None:
+        self.personality.scenario = value
+
+    @personality_catchphrases.setter
+    def personality_catchphrases(self, value: Any) -> None:
+        self.personality.catchphrases = value
+
+    @personality_age.setter
+    def personality_age(self, value: Any) -> None:
+        self.personality.age = value
+
+    @personality_likes.setter
+    def personality_likes(self, value: Any) -> None:
+        self.personality.likes = value
+
+    @personality_dislikes.setter
+    def personality_dislikes(self, value: Any) -> None:
+        self.personality.dislikes = value
+
+    @personality_goals.setter
+    def personality_goals(self, value: Any) -> None:
+        self.personality.goals = value
+
+    @personality_traits.setter
+    def personality_traits(self, value: Any) -> None:
+        self.personality.traits = value
+
+    @personality_physical_traits.setter
+    def personality_physical_traits(self, value: Any) -> None:
+        self.personality.physical_traits = value
+
+    @personality_tone.setter
+    def personality_tone(self, value: Any) -> None:
+        self.personality.tone = value
+
+    @personality_history.setter
+    def personality_history(self, value: Any) -> None:
+        self.personality.history = value
+
+    @personality_conversational_goals.setter
+    def personality_conversational_goals(self, value: Any) -> None:
+        self.personality.conversational_goals = value
+
+    @personality_conversational_examples.setter
+    def personality_conversational_examples(self, value: Any) -> None:
+        self.personality.conversational_examples = value
+
+    @free_will.setter
+    def free_will(self, value: bool) -> None:
+        self.personality.free_will = value
+
+    @free_will_instruction.setter
+    def free_will_instruction(self, value: str) -> None:
+        self.personality.free_will_instruction = value
+
+    @jailbreak.setter
+    def jailbreak(self, value: str) -> None:
+        self.personality.jailbreak = value
+
+    @data_dir.setter
+    def data_dir(self, value: str) -> None:
+        self.file_system.data_dir = value
+
+    @conversations_dir.setter
+    def conversations_dir(self, value: str) -> None:
+        self.file_system.conversations_dir = value
+
+    @memory_path.setter
+    def memory_path(self, value: str) -> None:
+        self.file_system.memory_path = value
+
+    @lorebook_path.setter
+    def lorebook_path(self, value: str) -> None:
+        self.file_system.lorebook_path = value
+
+    @audio_dir.setter
+    def audio_dir(self, value: str) -> None:
+        self.file_system.audio_dir = value
+
+    @add_character_name.setter
+    def add_character_name(self, value: bool) -> None:
+        self.behavior.add_character_name = value
+
+    @always_reply_mentions.setter
+    def always_reply_mentions(self, value: bool) -> None:
+        self.behavior.always_reply_mentions = value
+
+    @reply_to_name.setter
+    def reply_to_name(self, value: bool) -> None:
+        self.behavior.reply_to_name = value
+
+    @use_tts.setter
+    def use_tts(self, value: bool) -> None:
+        self.behavior.use_tts = value
+
+    @activated_channels.setter
+    def activated_channels(self, value: Set[int]) -> None:
+        self.behavior.activated_channels = value
+
+    @blacklisted_users.setter
+    def blacklisted_users(self, value: List[int]) -> None:
+        self.behavior.blacklisted_users = value
+
+    @blacklisted_roles.setter
+    def blacklisted_roles(self, value: List[int]) -> None:
+        self.behavior.blacklisted_roles = value
+
+    @conversation_timeout.setter
+    def conversation_timeout(self, value: int) -> None:
+        self.behavior.conversation_timeout = value
+
+    @message_cooldown_seconds.setter
+    def message_cooldown_seconds(self, value: int) -> None:
+        self.behavior.message_cooldown_seconds = value
+
+    async def register_cogs(self) -> None:
+        for file in os.listdir("./openshapes/cogs"):
+            if file.endswith(".py") and not file.startswith("__"):
+                await self.load_extension(f"openshapes.cogs.{file[:-3]}")
+
     async def setup_hook(self) -> None:
-        command_registry = CommandRegistry(self, self.character_config.get("allowed_guilds", []))
-        command_registry.register_global_commands()
-        command_registry.register_guild_commands()
+        await self.register_cogs()
         
-        self.add_listener(on_message, "on_message")
-        self.add_listener(on_reaction_add, "on_reaction_add")
+        self.add_listener(self._message_handler.on_message, "on_message")
+        self.add_listener(self._reaction_handler.on_reaction_add, "on_reaction_add")
 
     async def on_ready(self) -> None:
         logger.info(f"Logged in as {self.user.name} ({self.user.id})")

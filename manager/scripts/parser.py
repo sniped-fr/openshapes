@@ -4,7 +4,6 @@ import os
 import uuid
 from typing import Dict, List, Optional, Any
 
-
 class FileHandler:
     @staticmethod
     def load_json(file_path: str) -> dict:
@@ -20,15 +19,14 @@ class FileHandler:
     def ensure_directory(directory_path: str) -> None:
         os.makedirs(directory_path, exist_ok=True)
 
-
 class CharacterConfigBuilder:
     def __init__(self, shapes_data: Dict[str, Any]):
         self.shapes_data = shapes_data
         self.discord_bot_token = "NOT_PROVIDED"
-        self.owner_id = self._extract_owner_id()
+        self.owner_id = self._extractbot_owner_id()
         self.character_name = shapes_data.get("name", "Unknown")
         
-    def _extract_owner_id(self) -> Optional[int]:
+    def _extractbot_owner_id(self) -> Optional[int]:
         if "app_info" in self.shapes_data and "full_data" in self.shapes_data["app_info"]:
             app_data = self.shapes_data["app_info"]["full_data"]
             if "owner" in app_data and "id" in app_data["owner"]:
@@ -124,7 +122,6 @@ class CharacterConfigBuilder:
             "conversation_timeout": 30,
         }
 
-
 class MemoryEntry:
     def __init__(self, key: str, detail: str, source: str, timestamp: str):
         self.key = key
@@ -138,7 +135,6 @@ class MemoryEntry:
             "source": self.source,
             "timestamp": self.timestamp
         }
-
 
 class MemoryManager:
     def __init__(self, shapes_data: Dict[str, Any], brain_data: List[Dict[str, Any]]):
@@ -201,7 +197,6 @@ class MemoryManager:
     def to_dict(self) -> Dict[str, Dict[str, str]]:
         return {k: v.to_dict() for k, v in self.memory_entries.items()}
 
-
 class LoreBookEntry:
     def __init__(self, title: str, content: str):
         self.title = title
@@ -209,7 +204,6 @@ class LoreBookEntry:
     
     def to_dict(self) -> Dict[str, str]:
         return {self.title: self.content}
-
 
 class LoreBookManager:
     def __init__(self, brain_data: List[Dict[str, Any]]):
@@ -238,7 +232,6 @@ class LoreBookManager:
     
     def to_list(self) -> List[Dict[str, str]]:
         return [entry.to_dict() for entry in self.entries]
-
 
 class ShapesParser:
     def __init__(self, shapes_json_path: str, brain_json_path: Optional[str] = None):
@@ -301,7 +294,6 @@ class ShapesParser:
         )
         
         print(f"Files saved to {output_dir}")
-
 
 class ParserApplication:
     def __init__(self):

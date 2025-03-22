@@ -56,7 +56,7 @@ class ResponseGenerator:
         relevant_info: List[str],
         user_message: str = ""
     ) -> str:
-        if not self.bot.ai_client or not self.bot.chat_model:
+        if not self.bot.api_integration.client or not self.bot.api_integration.chat_model:
             return "I apologize, but my AI client is not configured correctly. Please ask my owner to set up API settings."
             
         try:
@@ -76,8 +76,8 @@ class ResponseGenerator:
             if user_message and (not channel_history or user_message != channel_history[-1].get("content", "")):
                 messages.append({"role": "user", "content": user_message})
             
-            completion = await self.bot.ai_client.chat.completions.create(
-                model=self.bot.chat_model,
+            completion = await self.bot.api_integration.client.chat.completions.create(
+                model=self.bot.api_integration.chat_model,
                 messages=messages,
                 temperature=0.7,
                 max_tokens=1000,
@@ -201,7 +201,7 @@ class MessageHandler:
         should_respond, is_priority = await self._should_respond(message)
 
         is_ooc = message.content.startswith("//") or message.content.startswith("/ooc")
-        if is_ooc and message.author.id == self.bot.owner_id:
+        if is_ooc and str(message.user.id) == self.bot.config_manager.get("owner_id"):
             await self.bot._handle_ooc_command(message)
             return
 
@@ -217,7 +217,7 @@ class MessageHandler:
                 clean_content = re.sub(r"<@!?(\d+)>", "", processed_content).strip()
                 clean_content = attachment_content + clean_content
 
-                channel_history = self.bot.helpers.get_channel_conversation(message.channel.id)
+                channel_history = self.bot._get_channel_conversation(message.channel.id)
                 
                 channel_history.append({
                     "role": "user",
@@ -267,7 +267,7 @@ class MessageHandler:
                         message.author.display_name, clean_content, response, guild_id
                     )
 
-                self.bot.helpers.save_conversation(message.channel.id, channel_history)
+                self.bot._save_conversation(message.channel.id, channel_history)
 
                 formatted_response = (
                     f"**{self.bot.character_name}**: {response}"
@@ -277,7 +277,7 @@ class MessageHandler:
                 
                 await self.tts_playback.play_audio(message, response)
                 
-                sent_message, message_group = await self.bot.helpers.send_long_message(
+                sent_message, message_group = await self.bot._send_long_message(
                     message.channel,
                     formatted_response,
                     reference=message,
@@ -298,7 +298,7 @@ class MessageHandler:
                 
                 primary_id = message_group["primary_id"]
                 if primary_id:
-                    self.bot.helpers.save_message_context(primary_id, context.to_dict())
+                    self.bot._save_message_context(primary_id, context.to_dict())
 
 class ReactionHandler:
     def __init__(self, bot: Any):
@@ -329,7 +329,7 @@ class ReactionHandler:
         if message_group and message_group["primary_id"]:
             context_message_id = message_group["primary_id"]
             
-        context_dict = self.bot.helpers.get_message_context(context_message_id)
+        context_dict = self.bot._get_message_context(context_message_id)
         if not context_dict:
             return
             
@@ -381,7 +381,7 @@ class ReactionHandler:
             try:
                 original_message = await reaction.message.channel.fetch_message(context.original_message_id)
                 
-                primary_message, new_message_group = await self.bot.helpers.send_long_message(
+                primary_message, _ = await self.bot._send_long_message(
                     reaction.message.channel, 
                     formatted_response,
                     reference=original_message
@@ -390,10 +390,10 @@ class ReactionHandler:
                 await primary_message.add_reaction("🗑️")
                 await primary_message.add_reaction("🔄")
                 
-                self.bot.helpers.save_message_context(primary_message.id, context.to_dict())
+                self.bot._save_message_context(primary_message.id, context.to_dict())
                 
             except (discord.NotFound, discord.HTTPException):
-                primary_message, new_message_group = await self.bot.helpers.send_long_message(
+                primary_message, _ = await self.bot._send_long_message(
                     reaction.message.channel, 
                     formatted_response
                 )
@@ -412,7 +412,7 @@ class ReactionHandler:
                 try:
                     original_message = await reaction.message.channel.fetch_message(context.original_message_id)
                     
-                    primary_message, new_message_group = await self.bot.helpers.send_long_message(
+                    primary_message, _ = await self.bot._send_long_message(
                         reaction.message.channel, 
                         formatted_response,
                         reference=original_message
@@ -421,10 +421,10 @@ class ReactionHandler:
                     await primary_message.add_reaction("🗑️")
                     await primary_message.add_reaction("🔄")
                     
-                    self.bot.helpers.save_message_context(primary_message.id, context.to_dict())
+                    self.bot._save_message_context(primary_message.id, context.to_dict())
                     
                 except (discord.NotFound, discord.HTTPException):
-                    primary_message, new_message_group = await self.bot.helpers.send_long_message(
+                    primary_message, _ = await self.bot._send_long_message(
                         reaction.message.channel, 
                         formatted_response
                     )
@@ -433,7 +433,7 @@ class ReactionHandler:
         self.update_channel_history(reaction.message.channel.id, response, context)
 
     def update_channel_history(self, channel_id: int, response: str, context: MessageContext) -> None:
-        channel_history = self.bot.helpers.get_channel_conversation(channel_id)
+        channel_history = self.bot._get_channel_conversation(channel_id)
         
         if channel_history and channel_history[-1]["role"] == "assistant":
             channel_history[-1] = {
@@ -450,7 +450,7 @@ class ReactionHandler:
                 "timestamp": datetime.datetime.now().isoformat(),
             })
         
-        self.bot.helpers.save_conversation(channel_id, channel_history)
+        self.bot._save_conversation(channel_id, channel_history)
         
         guild_id = context.user_discord_id.split(":")[0] if ":" in context.user_discord_id else "global"
         if hasattr(self.bot, 'memory_manager'):
@@ -465,12 +465,12 @@ class ReactionHandler:
         message_id = reaction.message.id
         message_group = None
         
-        if self.bot.helpers.is_multipart_message(message_id):
-            message_group = self.bot.helpers.get_message_group(message_id)
+        if self.bot._is_multipart_message(message_id):
+            message_group = self.bot._get_message_group(message_id)
         
         if (reaction.emoji == "🗑️" and 
             reaction.message.author == self.bot.user and 
-            (user.id == self.bot.owner_id or
+            (str(user.id) == self.bot.config_manager.get("owner_id") or
              (hasattr(reaction.message, "reference") and 
               reaction.message.reference and 
               reaction.message.reference.resolved and 
@@ -815,11 +815,3 @@ class OOCCommandHandler:
             await self._handle_help_command(message)
         else:
             await message.reply(f"Unknown command: {command}. Type //help for available commands.")
-
-async def on_message(self, message: discord.Message) -> None:
-    handler = MessageHandler(self)
-    await handler.on_message(message)
-
-async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User) -> None:
-    handler = ReactionHandler(self)
-    await handler.on_reaction_add(reaction, user)

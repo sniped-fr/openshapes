@@ -91,11 +91,11 @@ class ConfigMapper:
     @staticmethod
     def extract_api_config(bot) -> Dict[str, Any]:
         return {
-            "base_url": bot.base_url,
-            "api_key": bot.api_key,
-            "chat_model": bot.chat_model,
-            "tts_model": bot.tts_model,
-            "tts_voice": bot.tts_voice
+            "base_url": bot.api_integration.base_url,
+            "api_key": bot.api_integration.api_key,
+            "chat_model": bot.api_integration.chat_model,
+            "tts_model": bot.api_integration.tts_model,
+            "tts_voice": bot.api_integration.tts_voice
         }
 
 class ConfigSerializer:
@@ -153,7 +153,7 @@ class ConfigManager:
     
     def save_config(self) -> bool:
         try:
-            config = copy.deepcopy(self.bot.character_config)
+            config = copy.deepcopy(self.bot.config_manager.to_dict())
 
             config.update(ConfigMapper.extract_personality_config(self.bot))
             config.update(ConfigMapper.extract_behavior_config(self.bot))

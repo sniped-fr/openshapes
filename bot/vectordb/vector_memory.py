@@ -419,7 +419,7 @@ class ChromaMemoryManager:
             return []
             
     async def extract_memories_from_text(self, text_content: str, guild_id: str = "global") -> int:
-        if not hasattr(self.bot, 'ai_client') or not self.bot.ai_client or not hasattr(self.bot, 'chat_model') or not self.bot.chat_model:
+        if not hasattr(self.bot, 'api_integration') or not self.bot.api_integration.client or not self.bot.api_integration.chat_model:
             logger.warning("AI client or chat model not available for memory extraction")
             return 0
         
@@ -490,7 +490,7 @@ class ChromaMemoryManager:
             return 0
             
     async def update_memory_from_conversation(self, user_name: str, user_message: str, bot_response: str, guild_id: str = "global") -> None:
-        if not hasattr(self.bot, 'ai_client') or not self.bot.ai_client or not hasattr(self.bot, 'chat_model') or not self.bot.chat_model:
+        if not hasattr(self.bot, 'api_integration') or not self.bot.api_integration.client or not self.bot.api_integration.chat_model:
             logger.warning("AI client or chat model not available for memory update")
             return
             

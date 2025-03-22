@@ -1,5 +1,5 @@
-import discord
 import logging
+import discord
 from typing import List, Optional, Protocol, Any, TypeVar, Coroutine, Union
 from dataclasses import dataclass
 from discord import ui
@@ -31,16 +31,16 @@ class ModelPermissionChecker(Protocol):
 
 class OpenAIModelRepository:
     def __init__(self, ai_client: Any):
-        self.ai_client = ai_client
+        self.api_integration.client = ai_client
         self._models: List[ModelInfo] = []
         
     async def fetch_models(self) -> List[ModelInfo]:
-        if not self.ai_client:
+        if not self.api_integration.client:
             logger.warning("No AI client configured, can't fetch models")
             return []
             
         try:
-            response = await self.ai_client.models.list()
+            response = await self.api_integration.client.models.list()
             self._models = []
             
             for model in response.data:
@@ -66,8 +66,8 @@ class BotModelSelectionListener:
         self.bot = bot
         
     async def on_model_selected(self, model: ModelInfo) -> None:
-        self.bot.chat_model = model.id
-        self.bot.api_settings["chat_model"] = model.id
+        self.bot.api_integration.chat_model = model.id
+        self.bot.api_integration.chat_model = model.id
         self.bot.config_manager_obj.save_config()
 
 class BotOwnerPermissionChecker:
@@ -75,7 +75,7 @@ class BotOwnerPermissionChecker:
         self.owner_id = owner_id
         
     async def can_select_models(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.owner_id:
+        if str(interaction.user.id) != self.owner_id:
             await interaction.response.send_message(
                 "Only the bot owner can change the AI model", ephemeral=True
             )
@@ -168,15 +168,15 @@ class ModelSelectionController:
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 async def model_command(bot, interaction: discord.Interaction) -> None:
-    if not bot.ai_client:
+    if not bot.api_integration.client:
         await interaction.response.send_message(
             "AI client not configured. Set API settings first.", ephemeral=True
         )
         return
     
-    repository = OpenAIModelRepository(bot.ai_client)
+    repository = OpenAIModelRepository(bot.api_integration.client)
     listener = BotModelSelectionListener(bot)
-    permission_checker = BotOwnerPermissionChecker(bot.owner_id)
+    permission_checker = BotOwnerPermissionChecker(bot.config_manager.get("owner_id"))
     
     controller = ModelSelectionController(repository, listener, permission_checker)
-    await controller.display_model_selection(interaction, bot.chat_model)
+    await controller.display_model_selection(interaction, bot.api_integration.chat_model)
