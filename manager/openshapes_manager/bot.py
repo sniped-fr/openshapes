@@ -3,7 +3,6 @@ import asyncio
 import os
 import json
 import nest_asyncio
-import dotenv
 from discord.ext import commands, tasks
 
 try:
@@ -16,7 +15,6 @@ except ImportError:
     from commands import setup_commands
 
 nest_asyncio.apply()
-dotenv.load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env")))
 
 BOT_CONFIG_FILE = "manager_config.json"
 DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
@@ -247,13 +245,3 @@ class OpenShapesManager(commands.Bot):
 
     async def get_bot_stats(self, user_id, bot_name):
         return await self.container_manager.get_bot_stats(user_id, bot_name)
-
-def run():
-    bot = OpenShapesManager()
-    token = os.environ.get("DISCORD_BOT_TOKEN")
-
-    if token == "YOUR_DISCORD_BOT_TOKEN":
-        print("Please set your bot token in manager_config.json")
-        return
-
-    bot.run(token)
