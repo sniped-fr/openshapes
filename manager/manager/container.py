@@ -2,6 +2,7 @@ import docker
 import os
 import shutil
 import datetime
+import logging
 from typing import Dict, Tuple, Any, Optional, Union
 from docker.models.containers import Container
 
@@ -90,7 +91,7 @@ class ContainerOperationResult:
         return self.success, self.data if self.data is not None else self.message
 
 class ContainerOperationExecutor:
-    def __init__(self, logger, docker_client, config: Dict[str, Any]):
+    def __init__(self, logger: logging.Logger, docker_client: docker.DockerClient, config: Dict[str, Any]):
         self.logger = logger
         self.docker_client = docker_client
         self.config = config
@@ -110,7 +111,7 @@ class ContainerOperationExecutor:
             return None
 
 class ParserOperations(ContainerOperationExecutor):
-    def __init__(self, logger, docker_client, config: Dict[str, Any]):
+    def __init__(self, logger: logging.Logger, docker_client: docker.DockerClient, config: Dict[str, Any]):
         super().__init__(logger, docker_client, config)
         self.script_builder = ScriptBuilder()
     
@@ -182,7 +183,7 @@ class ParserOperations(ContainerOperationExecutor):
                 detach=True,
                 environment={
                     "PYTHONPATH": "/app/bot"
-                },
+                }
             )
         except Exception as e:
             self.logger.error(f"Failed to launch parser container: {e}")
@@ -222,13 +223,22 @@ class ParserOperations(ContainerOperationExecutor):
             self.logger.warning(f"Failed to remove temporary script: {e}")
 
 class BotContainerOperations(ContainerOperationExecutor):
-    def __init__(self, logger, docker_client, config: Dict[str, Any], registry: ContainerRegistry):
+    def __init__(
+        self,
+        logger: logging.Logger,
+        docker_client: docker.DockerClient,
+        config: Dict[str, Any],
+        registry: ContainerRegistry
+    ):
         super().__init__(logger, docker_client, config)
         self.registry = registry
         self.script_builder = ScriptBuilder()
     
     async def start_bot_container(
-        self, user_id: str, bot_name: str, bot_dir: str
+        self,
+        user_id: str,
+        bot_name: str,
+        bot_dir: str
     ) -> Tuple[bool, str]:
         try:
             container_name = f"openshape_{user_id}_{bot_name}"
@@ -252,7 +262,7 @@ class BotContainerOperations(ContainerOperationExecutor):
             self.registry.register_bot(user_id, bot_name, {
                 "container_id": container.id,
                 "status": container.status,
-                "name": container.name,
+                "name": container.name
             })
             
             return True, f"Container {container_name} started"
@@ -314,15 +324,21 @@ class BotContainerOperations(ContainerOperationExecutor):
                 labels={
                     "managed_by": "openshapes_manager",
                     "user_id": user_id,
-                    "bot_name": bot_name,
-                },
+                    "bot_name": bot_name
+                }
             )
         except Exception as e:
             self.logger.error(f"Failed to launch bot container: {e}")
             return None
 
 class BotManagementOperations(ContainerOperationExecutor):
-    def __init__(self, logger, docker_client, config: Dict[str, Any], registry: ContainerRegistry):
+    def __init__(
+        self,
+        logger: logging.Logger,
+        docker_client: docker.DockerClient,
+        config: Dict[str, Any],
+        registry: ContainerRegistry
+    ):
         super().__init__(logger, docker_client, config)
         self.registry = registry
     
@@ -384,7 +400,11 @@ class BotManagementOperations(ContainerOperationExecutor):
             return self.handle_exception("restarting bot", e).to_tuple()
     
     async def delete_bot(
-        self, user_id: str, bot_name: str, is_admin: bool, bot_dir: str
+        self,
+        user_id: str,
+        bot_name: str,
+        is_admin: bool,
+        bot_dir: str
     ) -> Tuple[bool, str]:
         try:
             if not is_admin:
@@ -405,7 +425,11 @@ class BotManagementOperations(ContainerOperationExecutor):
             return self.handle_exception("deleting bot", e).to_tuple()
     
     async def get_bot_logs(
-        self, user_id: str, bot_name: str, lines: int = 20, is_admin: bool = False
+        self,
+        user_id: str,
+        bot_name: str,
+        lines: int = 20,
+        is_admin: bool = False
     ) -> Tuple[bool, str]:
         try:
             bot_info = self._get_bot_info_with_admin_check(user_id, bot_name, is_admin)
@@ -448,7 +472,10 @@ class BotManagementOperations(ContainerOperationExecutor):
         return self.registry.get_bot(user_id, bot_name)
     
     def _get_bot_info_with_admin_check(
-        self, user_id: str, bot_name: str, is_admin: bool
+        self,
+        user_id: str,
+        bot_name: str,
+        is_admin: bool
     ) -> Optional[Dict[str, Any]]:
         if not is_admin:
             user_bots = self.registry.get_user_bots(user_id)
@@ -478,7 +505,10 @@ class BotManagementOperations(ContainerOperationExecutor):
             raise
     
     def _process_container_stats(
-        self, container: Container, stats: Dict[str, Any], container_id: str
+        self,
+        container: Container,
+        stats: Dict[str, Any],
+        container_id: str
     ) -> Dict[str, Any]:
         cpu_stats = self._calculate_cpu_stats(stats)
         memory_stats = self._calculate_memory_stats(stats)
@@ -490,7 +520,7 @@ class BotManagementOperations(ContainerOperationExecutor):
             "container_id": container_id[:12],
             "cpu_percent": f"{cpu_stats:.2f}%",
             "memory_usage": memory_stats["usage_str"],
-            "memory_percent": f"{memory_stats['percent']:.2f}%",
+            "memory_percent": f"{memory_stats['percent']:.2f}%"
         }
     
     def _calculate_cpu_stats(self, stats: Dict[str, Any]) -> float:
@@ -543,7 +573,7 @@ class BotManagementOperations(ContainerOperationExecutor):
         return "Unknown"
 
 class ContainerManager:
-    def __init__(self, logger, config):
+    def __init__(self, logger: logging.Logger, config: Dict[str, Any]):
         self.logger = logger
         self.config = config
         self.docker_client = DockerClientFactory.create_client()
@@ -568,7 +598,7 @@ class ContainerManager:
                             "container_id": container.id,
                             "status": container.status,
                             "created": container.attrs.get("Created"),
-                            "name": container.name,
+                            "name": container.name
                         })
             
             self.logger.info(
@@ -589,7 +619,10 @@ class ContainerManager:
         return result
     
     async def start_bot_container(
-        self, user_id: str, bot_name: str, bot_dir: str
+        self,
+        user_id: str,
+        bot_name: str,
+        bot_dir: str
     ) -> Tuple[bool, str]:
         result = await self.bot_container_ops.start_bot_container(user_id, bot_name, bot_dir)
         await self.refresh_bot_list()
@@ -611,14 +644,22 @@ class ContainerManager:
         return result
     
     async def delete_bot(
-        self, user_id: str, bot_name: str, is_admin: bool, bot_dir: str
+        self,
+        user_id: str,
+        bot_name: str,
+        is_admin: bool,
+        bot_dir: str
     ) -> Tuple[bool, str]:
         result = await self.bot_mgmt_ops.delete_bot(user_id, bot_name, is_admin, bot_dir)
         await self.refresh_bot_list()
         return result
     
     async def get_bot_logs(
-        self, user_id: str, bot_name: str, lines: int = 20, is_admin: bool = False
+        self,
+        user_id: str,
+        bot_name: str,
+        lines: int = 20,
+        is_admin: bool = False
     ) -> Tuple[bool, str]:
         return await self.bot_mgmt_ops.get_bot_logs(user_id, bot_name, lines, is_admin)
     

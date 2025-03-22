@@ -1,1 +1,1 @@
-python3 -B -m openshapes_manager
+python3 -B -m manager

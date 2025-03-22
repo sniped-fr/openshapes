@@ -3,16 +3,10 @@ import asyncio
 import os
 import json
 import nest_asyncio
+from typing import Dict, Tuple, Any
 from discord.ext import commands, tasks
-
-try:
-    from .utils import setup_logger, create_required_directories
-    from .container import ContainerManager
-    from .commands import setup_commands
-except ImportError:
-    from utils import setup_logger, create_required_directories
-    from container import ContainerManager
-    from commands import setup_commands
+from .utils import LoggerManager, DirectoryManager, ConfigManager, BotUtils
+from .container import ContainerManager
 
 nest_asyncio.apply()
 
@@ -24,13 +18,13 @@ class OpenShapesManager(commands.Bot):
         intents = discord.Intents.all()
         super().__init__(command_prefix="!", intents=intents)
 
-        self.logger = setup_logger()
+        self.logger = LoggerManager.setup()
+        self.config_manager = ConfigManager(self.logger)
         self.config = self._load_config()
-
         self.container_manager = ContainerManager(self.logger, self.config)
 
         if self.config:
-            create_required_directories(self.config["data_dir"])
+            DirectoryManager.create_required_directories(self.config["data_dir"])
 
         self.bg_tasks = []
         self.monitor_task = asyncio.run(self._create_monitor_task())
@@ -40,16 +34,13 @@ class OpenShapesManager(commands.Bot):
         if not hasattr(self, 'container_manager') or self.container_manager is None:
             self.logger.warning("Container manager not initialized, returning empty dict for active_bots")
             return {}
-        
         return self.container_manager.active_bots
 
     def _load_config(self) -> dict:
-        if os.path.exists(os.path.join(DIR, BOT_CONFIG_FILE)):
-            try:
-                with open(os.path.join(DIR, BOT_CONFIG_FILE), "r") as f:
-                    return json.load(f)
-            except Exception as e:
-                self.logger.error(f"Error loading config: {e}")
+        config_path = os.path.join(DIR, BOT_CONFIG_FILE)
+        config = self.config_manager.load(config_path)
+        if config:
+            return config
 
         default_config = {
             "data_dir": "data",
@@ -62,8 +53,7 @@ class OpenShapesManager(commands.Bot):
         self.logger.warning("No configuration found, using default settings")
 
         try:
-            with open(os.path.join(DIR, BOT_CONFIG_FILE), "w") as f:
-                json.dump(default_config, f, indent=2)
+            ConfigManager.save(default_config, config_path)
             self.logger.info(f"Created default configuration file at {BOT_CONFIG_FILE}")
         except Exception as e:
             self.logger.error(f"Failed to save default configuration: {e}")
@@ -71,17 +61,15 @@ class OpenShapesManager(commands.Bot):
         return default_config
     
     def save_config(self) -> None:
-        with open(os.path.join(DIR, BOT_CONFIG_FILE), "w") as f:
-            json.dump(self.config, f, indent=2)
+        ConfigManager.save(self.config, os.path.join(DIR, BOT_CONFIG_FILE))
+    
+    async def register_cogs(self) -> None:
+        for file in os.listdir("./manager/cogs"):
+            if file.endswith(".py") and not file.startswith("__"):
+                await self.load_extension(f"manager.cogs.{file[:-3]}")
 
     async def setup_hook(self):
-        create_commands, manage_commands, admin_commands, tutorial_commands = setup_commands(self)
-        
-        self.tree.add_command(create_commands)
-        self.tree.add_command(manage_commands)
-        self.tree.add_command(admin_commands)
-        self.tree.add_command(tutorial_commands)
-
+        await self.register_cogs()
         try:
             await self.tree.sync()
             self.logger.info("Commands registered and synced with Discord")
@@ -101,7 +89,6 @@ class OpenShapesManager(commands.Bot):
 
         monitor_task = monitor_containers_task
         monitor_task.start()
-
         await self.container_manager.refresh_bot_list()
         return monitor_task
 
@@ -123,7 +110,6 @@ class OpenShapesManager(commands.Bot):
             for role_id in self.config.get("admin_roles", []):
                 if role_id in user_roles:
                     return True
-
         return False
 
     def get_user_bots(self, user_id: str):
@@ -133,36 +119,30 @@ class OpenShapesManager(commands.Bot):
         return self.container_manager.get_user_bot_count(user_id)
 
     def get_user_data_dir(self, user_id: str) -> str:
-        user_dir = os.path.join(self.config["data_dir"], "users", user_id)
-        os.makedirs(user_dir, exist_ok=True)
-        return user_dir
+        return DirectoryManager.get_user_data_dir(self.config["data_dir"], user_id)
 
     def get_bot_config_dir(self, user_id: str, bot_name: str) -> str:
-        config_dir = os.path.join(self.get_user_data_dir(user_id), bot_name)
-        os.makedirs(config_dir, exist_ok=True)
-        return config_dir
+        return DirectoryManager.get_bot_config_dir(self.config["data_dir"], user_id, bot_name)
 
-    async def create_bot(self, user_id, bot_name, config_json, bot_token, owner_id, brain_json=None):
+    async def create_bot(
+        self,
+        user_id: str,
+        bot_name: str,
+        config_json: Dict[str, Any],
+        bot_token: str,
+        brain_json: Dict[str, Any] = None
+    ) -> Tuple[bool, str]:
         try:
-            if not bot_name.replace("_", "").isalnum():
-                return (
-                    False,
-                    "Bot name must contain only letters, numbers, and underscores",
-                )
+            if not BotUtils.is_valid_bot_name(bot_name):
+                return False, "Bot name must contain only letters, numbers, and underscores"
 
             user_bots = self.get_user_bots(user_id)
             if bot_name in user_bots:
                 return False, f"You already have a bot named {bot_name}"
 
             is_admin = str(user_id) in self.config["admin_users"]
-            if (
-                not is_admin
-                and self.get_user_bot_count(user_id) >= self.config["max_bots_per_user"]
-            ):
-                return (
-                    False,
-                    f"You have reached the maximum limit of {self.config['max_bots_per_user']} bots",
-                )
+            if not is_admin and self.get_user_bot_count(user_id) >= self.config["max_bots_per_user"]:
+                return False, f"You have reached the maximum limit of {self.config['max_bots_per_user']} bots"
 
             try:
                 config_data = json.loads(config_json)
@@ -185,10 +165,7 @@ class OpenShapesManager(commands.Bot):
                 with open(os.path.join(bot_dir, "brain.json"), "w") as f:
                     json.dump(brain_data, f, indent=2)
 
-            parser_source = os.path.join(
-                os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "parser.py"
-            )
-
+            parser_source = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "parser.py")
             if not os.path.exists(parser_source):
                 current_dir = os.getcwd()
                 parser_source = os.path.join(current_dir, "scripts", "parser.py")
@@ -203,7 +180,7 @@ class OpenShapesManager(commands.Bot):
                     char_config = json.load(f)
 
                 char_config["bot_token"] = bot_token
-                char_config["owner_id"] = str(owner_id)
+                char_config["owner_id"] = user_id
 
                 with open(config_path, "w") as f:
                     json.dump(char_config, f, indent=2)
@@ -211,14 +188,11 @@ class OpenShapesManager(commands.Bot):
                 self.logger.error(f"Error updating character_config.json with token: {e}")
                 return False, f"Error updating configuration: {str(e)}"
 
-            container_result = await self.container_manager.start_bot_container(
-                user_id, bot_name, bot_dir
-            )
+            container_result = await self.container_manager.start_bot_container(user_id, bot_name, bot_dir)
             if not container_result[0]:
                 return container_result
 
             await self.container_manager.refresh_bot_list()
-
             return True, f"Bot {bot_name} created and started successfully"
 
         except Exception as e:
