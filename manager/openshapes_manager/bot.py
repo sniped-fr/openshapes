@@ -19,7 +19,7 @@ nest_asyncio.apply()
 dotenv.load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env")))
 
 BOT_CONFIG_FILE = "manager_config.json"
-DIR = os.path.dirname(__file__)
+DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
 
 class OpenShapesManager(commands.Bot):
     def __init__(self):
@@ -144,7 +144,7 @@ class OpenShapesManager(commands.Bot):
         os.makedirs(config_dir, exist_ok=True)
         return config_dir
 
-    async def create_bot(self, user_id, bot_name, config_json, bot_token, brain_json=None):
+    async def create_bot(self, user_id, bot_name, config_json, bot_token, owner_id, brain_json=None):
         try:
             if not bot_name.replace("_", "").isalnum():
                 return (
@@ -205,7 +205,7 @@ class OpenShapesManager(commands.Bot):
                     char_config = json.load(f)
 
                 char_config["bot_token"] = bot_token
-                char_config["owner_id"] = user_id
+                char_config["owner_id"] = str(owner_id)
 
                 with open(config_path, "w") as f:
                     json.dump(char_config, f, indent=2)
@@ -248,7 +248,7 @@ class OpenShapesManager(commands.Bot):
     async def get_bot_stats(self, user_id, bot_name):
         return await self.container_manager.get_bot_stats(user_id, bot_name)
 
-def main():
+def run():
     bot = OpenShapesManager()
     token = os.environ.get("DISCORD_BOT_TOKEN")
 
@@ -257,6 +257,3 @@ def main():
         return
 
     bot.run(token)
-
-if __name__ == "__main__":
-    main()

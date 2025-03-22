@@ -36,18 +36,14 @@ fi
 python3 - <<EOF
 import sys
 import logging
-import json
 from openshapes import OpenShape
 
 logging.basicConfig(level=logging.$LOG_LEVEL, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("openshape")
 
-with open("$CONFIG", "r") as f:
-    character_config = json.load(f)
-
 try:
     bot = OpenShape("$CONFIG")
-    bot.run(character_config.get("bot_token", ""))
+    bot.run(bot.config_manager.get("bot_token", ""))
 except Exception as e:
     logger.error(f"Error running bot: {e}", exc_info=True)
     sys.exit(1)
