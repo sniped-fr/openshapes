@@ -10,7 +10,7 @@ if __name__ == "__main__":
     token = os.environ.get("DISCORD_BOT_TOKEN")
 
     if token == "YOUR_DISCORD_BOT_TOKEN":
-        print("Please set your bot token in manager_config.json")
+        print("Please set your bot token in config/manager_config.json")
         sys.exit(1)
 
     bot.run(token)
