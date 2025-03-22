@@ -8,7 +8,7 @@ from docker.models.containers import Container
 
 class DockerClientFactory:
     @staticmethod
-    def create_client():
+    def create_client() -> docker.DockerClient:
         return docker.from_env()
 
 class ContainerRegistry:
