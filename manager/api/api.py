@@ -28,8 +28,8 @@ if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
 # Import OpenShapesManager (ensure it's in the Python path)
-from openshapes_manager.bot import OpenShapesManager
-from openshapes_manager.container import ContainerManager
+from manager.bot import OpenShapesManager
+from manager.container import ContainerManager
 
 import nest_asyncio
 nest_asyncio.apply()
