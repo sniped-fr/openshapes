@@ -202,7 +202,7 @@ class MessageHandler:
         should_respond, is_priority = await self._should_respond(message)
 
         is_ooc = message.content.startswith("//") or message.content.startswith("/ooc")
-        if is_ooc and str(message.user.id) == self.bot.config_manager.get("owner_id"):
+        if is_ooc and str(message.author.id) == self.bot.config_manager.get("owner_id"):
             await self.bot._handle_ooc_command(message)
             return
 
