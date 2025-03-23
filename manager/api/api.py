@@ -75,7 +75,7 @@ bot_manager = OpenShapesManager()
 if bot_manager.config is None:
     logger.warning("Bot manager has no configuration, creating default")
     bot_manager.config = {
-        "data_dir": "openshapes_data",
+        "data_dir": "data",
         "max_bots_per_user": 5, 
         "admin_users": [],
         "admin_roles": [],
@@ -85,8 +85,8 @@ if bot_manager.config is None:
 
 # Make sure the directories exist
 if "data_dir" in bot_manager.config:
-    from openshapes_manager.utils import create_required_directories
-    create_required_directories(bot_manager.config["data_dir"])
+    from manager.utils import DirectoryManager
+    DirectoryManager.create_required_directories(bot_manager.config["data_dir"])
 
 if not hasattr(bot_manager, 'container_manager') or bot_manager.container_manager is None:
     logger.info("Initializing container manager")

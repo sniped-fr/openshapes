@@ -38,6 +38,10 @@ class OpenShapesManager(commands.Bot):
 
     def _load_config(self) -> dict:
         config_path = os.path.join(DIR, BOT_CONFIG_FILE)
+        
+        # Create config directory if it doesn't exist
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        
         config = self.config_manager.load(config_path)
         if config:
             return config
@@ -47,7 +51,7 @@ class OpenShapesManager(commands.Bot):
             "max_bots_per_user": 5,
             "admin_users": [],
             "admin_roles": [],
-            "docker_base_image": os.environ.get("DOCKER_BASE_IMAGE")
+            "docker_base_image": "openshapes:latest"
         }
         
         self.logger.warning("No configuration found, using default settings")
@@ -59,12 +63,13 @@ class OpenShapesManager(commands.Bot):
             self.logger.error(f"Failed to save default configuration: {e}")
         
         return default_config
-    
+        
     def save_config(self) -> None:
         ConfigManager.save(self.config, os.path.join(DIR, BOT_CONFIG_FILE))
     
     async def register_cogs(self) -> None:
-        for file in os.listdir("./manager/cogs"):
+        cogs_dir = os.path.join(os.path.dirname(__file__), "cogs")
+        for file in os.listdir(cogs_dir):
             if file.endswith(".py") and not file.startswith("__"):
                 await self.load_extension(f"manager.cogs.{file[:-3]}")
 

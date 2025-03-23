@@ -1,46 +1,71 @@
-import httpx
+import discord
+import asyncio
+from contextlib import AsyncExitStack
 
-async def check_bot_token_intents(bot_token: str) -> tuple[bool, str]:
-    """
-    Check if a Discord bot token has the required privileged intents enabled.
-    Returns (success, message) tuple.
-    """
-    headers = {
-        "Authorization": f"Bot {bot_token}",
-        "Content-Type": "application/json"
-    }
+async def check_bot_token_intents(token):
+    """Async function to check if a bot token has the required intents."""
+    intents = discord.Intents.all()
+    client = discord.Client(intents=intents)
     
-    try:
-        # First, verify the token is valid by making a simple API call
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                "https://discord.com/api/v10/users/@me", 
-                headers=headers,
-                timeout=10.0
-            )
-            
-            if response.status_code != 200:
-                return False, f"Invalid bot token. Status code: {response.status_code}"
-                
-            # Get the application info to check privileged intents
-            app_response = await client.get(
-                "https://discord.com/api/v10/applications/@me", 
-                headers=headers,
-                timeout=10.0
-            )
-
-            if app_response.status_code != 200:
-                return False, f"Failed to get application info. Status code: {app_response.status_code}"
-                
-            app_data = app_response.json()
-            
-            # Check flags for intents
-            flags = app_data.get("flags", 0)
+    @client.event
+    async def on_ready():
+        print(f"✅ Successfully connected as {client.user}")
+        print(f"✅ The following intents are enabled:")
         
-            if flags != 8953856:
-                return False, f"Missing required privileged intents: Message Content Intent, Server Members Intent, Presence Intent. Please enable them in the Discord Developer Portal."
-         
-            return True, "All required intents are enabled"
+        # List enabled intents correctly
+        for intent_name, enabled in client.intents:
+            if enabled:
+                print(f"  ✓ {intent_name}")
+        
+        # Close the client properly
+        await client.close()
+    
+    async with AsyncExitStack() as stack:
+        try:
+            # Create a timeout mechanism
+            connect_task = asyncio.create_task(client.start(token))
+            await asyncio.wait_for(connect_task, timeout=30)
+            return True, "All intents are enabled!"
             
+        except asyncio.TimeoutError:
+            print("❌ ERROR: Connection timed out after 30 seconds")
+            return False, "Connection timed out"
+            
+        except discord.errors.PrivilegedIntentsRequired:
+            print("❌ ERROR: Missing privileged intents")
+            print("ℹ️  SOLUTION: Enable privileged intents at https://discord.com/developers/applications/")
+            print("             1. Go to your application's page")
+            print("             2. Navigate to the 'Bot' tab")
+            print("             3. Enable the required privileged intents under 'Privileged Gateway Intents'")
+            return False, "Missing privileged intents - see console for instructions"
+            
+        except discord.errors.LoginFailure:
+            print("❌ ERROR: Invalid token or authentication failed")
+            print("ℹ️  SOLUTION: Check if your token is correct and hasn't been reset")
+            return False, "Invalid token or authentication failed"
+            
+        except Exception as e:
+            error_type = type(e).__name__
+            print(f"❌ ERROR [{error_type}]: {str(e)}")
+            return False, f"Error: {error_type} - {str(e)}"
+            
+        finally:
+            # Ensure client is properly closed to avoid connector warnings
+            if not client.is_closed():
+                try:
+                    await client.close()
+                except:
+                    pass
+
+# Example usage
+async def main():
+    try:
+        # I've redacted part of the token for security
+        token = "MTM1MTc1ODM2MjQ2Mjc4MTUzMw.GVHowu.YUpgXXV01jsDeCe0cC3tW2jwR-BeIcpzyhptuA"
+        status, result = await check_bot_token_intents(token)
+        print(f"\n📋 RESULT: {result}")
     except Exception as e:
-        return False, f"Error checking bot token: {str(e)}"
+        print(f"❌ ERROR: {str(e)}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
