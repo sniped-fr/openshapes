@@ -18,7 +18,7 @@ class SettingsFormatter:
 class PermissionValidator:
     @staticmethod
     async def validate_owner(interaction: discord.Interaction, owner_id: int) -> bool:
-        if interaction.user.id != owner_id:
+        if str(interaction.user.id) != owner_id:
             await interaction.response.send_message(
                 "Only the bot owner can use this command", ephemeral=True
             )

@@ -181,6 +181,7 @@ class OpenShapesManager(commands.Bot):
 
                 char_config["bot_token"] = bot_token
                 char_config["owner_id"] = user_id
+                char_config["character_name"] = bot_name
 
                 with open(config_path, "w") as f:
                     json.dump(char_config, f, indent=2)

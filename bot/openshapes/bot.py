@@ -27,7 +27,6 @@ class ConfigurationManager:
                 self.data = json.load(f)
                 logger.info(f"Successfully loaded config from {self.config_path}")
                 return self.data
-                
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in config file: {e}")
             return {}
@@ -37,9 +36,6 @@ class ConfigurationManager:
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return self.data
 
     def update_field(self, key: str, value: Any) -> None:
         self.data[key] = value
@@ -127,7 +123,7 @@ class BehaviorSettings:
 
 class OpenShape(commands.Bot):
     def __init__(self, config_path: str, *args, **kwargs):
-        self.config_manager = ConfigurationManager("/app/bot/character_config.json")
+        self.config_manager = ConfigurationManager(config_path)
         intents = discord.Intents.all()
         
         super().__init__(
@@ -140,9 +136,9 @@ class OpenShape(commands.Bot):
         self.config_path = config_path
         
         self.api_integration = APIIntegration(self.config_manager.get("api_settings", {}))
-        self.personality = PersonalityProfile(self.config_manager.to_dict())
+        self.personality = PersonalityProfile(self.config_manager.data)
         self.file_system = FileSystemManager(self.config_manager.get("data_dir", "character_data"))
-        self.behavior = BehaviorSettings(self.config_manager.to_dict())
+        self.behavior = BehaviorSettings(self.config_manager.data)
         
         self.channel_conversations = {}
         self.channel_last_message_time = {}
@@ -155,13 +151,9 @@ class OpenShape(commands.Bot):
         
         self.file_parser = FileParser()
         
-        self._initialize_managers()
-        
-    def _initialize_managers(self) -> None:
-        self.config_manager_obj = ConfigManager(self, self.config_path)
+        self.config_manager_obj = ConfigManager(self)
         self.helpers = OpenShapeHelpers(self)
-        shared_db_path = os.path.join(os.getcwd(), "shared_memory")
-        self.memory_manager = setup_memory_system(self, shared_db_path)
+        self.memory_manager = setup_memory_system(self, os.path.join(os.getcwd(), "shared_memory"))
         self.regex_manager = RegexManager(self)
 
     @property

@@ -86,11 +86,21 @@ class ManageCommands(commands.GroupCog, group_name="manage", group_description="
             if button_interaction.user.id != interaction.user.id:
                 await button_interaction.response.send_message("This is not your confirmation dialog", ephemeral=True)
                 return
+
+            await button_interaction.response.edit_message(content="Delete operation confirmed. Deleting bot...", view=None)
+
             success, message = await self.bot.delete_bot(user_id, bot_name)
+
             if success:
-                await button_interaction.response.edit_message(content=f"✅ {message}", view=None)
+                await button_interaction.followup.edit_message(
+                    button_interaction.message.id,
+                    content=f"✅ {message}"
+                )
             else:
-                await button_interaction.response.edit_message(content=f"❌ {message}", view=None)
+                await button_interaction.followup.edit_message(
+                    button_interaction.message.id,
+                    content=f"❌ {message}"
+                )
 
         async def cancel_callback(button_interaction: discord.Interaction):
             if button_interaction.user.id != interaction.user.id:

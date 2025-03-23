@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-import copy
+import traceback
 from typing import Any, Dict, Optional, TypeVar, Generic, Callable
 
 logger = logging.getLogger("openshape")
@@ -37,6 +37,10 @@ class ConfigBackupManager:
             
     def rotate_backups(self) -> None:
         backup_dir = os.path.dirname(self.config_path)
+
+        if not os.path.exists(backup_dir):
+            os.mkdir(backup_dir)
+
         base_name = os.path.basename(self.config_path)
         backup_files = [
             f for f in os.listdir(backup_dir)
@@ -119,10 +123,9 @@ class ConfigSerializer:
             return None
 
 class ConfigManager:
-    def __init__(self, bot, config_path: str):
+    def __init__(self, bot):
         self.bot = bot
-        self.config_path = config_path
-        self.backup_manager = ConfigBackupManager(config_path)
+        self.backup_manager = ConfigBackupManager(self.bot.config_path)
         self.field_mapping = self._initialize_field_mapping()
     
     def _initialize_field_mapping(self) -> Dict[str, Callable[[Any], None]]:
@@ -153,7 +156,7 @@ class ConfigManager:
     
     def save_config(self) -> bool:
         try:
-            config = copy.deepcopy(self.bot.config_manager.to_dict())
+            config = self.bot.config_manager.data.copy()
 
             config.update(ConfigMapper.extract_personality_config(self.bot))
             config.update(ConfigMapper.extract_behavior_config(self.bot))
@@ -162,13 +165,13 @@ class ConfigManager:
             self.backup_manager.create_backup()
             self.backup_manager.rotate_backups()
 
-            if ConfigSerializer.serialize(config, self.config_path):
-                logger.info(f"Configuration saved to {self.config_path}")
+            if ConfigSerializer.serialize(config, self.bot.config_path):
+                logger.info(f"Configuration saved to {self.bot.config_path}")
                 return True
             return False
             
-        except Exception as e:
-            logger.error(f"Failed to save configuration: {e}")
+        except Exception:
+            logger.error(f"Failed to save configuration: {traceback.format_exc()}")
             return False
     
     def update_field(self, field_name: str, value: Any) -> bool:

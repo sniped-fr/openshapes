@@ -77,7 +77,7 @@ except Exception as e:
         
         startup_script += "# Change to bot directory and run the bot using run.sh\n"
         startup_script += "cd /app/bot\n"
-        startup_script += "bash run.sh --config character_config.json $DEBUG_FLAG\n"
+        startup_script += "bash run.sh --config /app/bot/character_config.json $DEBUG_FLAG\n"
         
         return startup_script
 
