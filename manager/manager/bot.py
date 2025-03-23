@@ -30,7 +30,7 @@ class OpenShapesManager(commands.Bot):
         self.monitor_task = asyncio.run(self._create_monitor_task())
 
     @property
-    def active_bots(self):
+    def active_bots(self) -> Dict[str, Dict[str, Any]]:
         if not hasattr(self, 'container_manager') or self.container_manager is None:
             self.logger.warning("Container manager not initialized, returning empty dict for active_bots")
             return {}
@@ -72,7 +72,7 @@ class OpenShapesManager(commands.Bot):
             if file.endswith(".py") and not file.startswith("__"):
                 await self.load_extension(f"manager.cogs.{file[:-3]}")
 
-    async def setup_hook(self):
+    async def setup_hook(self) -> None:
         await self.register_cogs()
         try:
             await self.tree.sync()
@@ -80,12 +80,12 @@ class OpenShapesManager(commands.Bot):
         except Exception as e:
             self.logger.error(f"Failed to sync commands: {e}")
 
-    async def on_ready(self):
+    async def on_ready(self) -> None:
         self.logger.info(f"Logged in as {self.user.name} ({self.user.id})")
         self.logger.info(f"Discord.py version: {discord.__version__}")
         self.logger.info("Bot is ready")
 
-    async def _create_monitor_task(self):
+    async def _create_monitor_task(self) -> tasks.Loop:
         @tasks.loop(minutes=5)
         async def monitor_containers_task():
             await self.container_manager.refresh_bot_list()
@@ -96,7 +96,7 @@ class OpenShapesManager(commands.Bot):
         await self.container_manager.refresh_bot_list()
         return monitor_task
 
-    async def refresh_bot_list(self):
+    async def refresh_bot_list(self) -> None:
         await self.container_manager.refresh_bot_list()
 
     def is_admin(self, interaction: discord.Interaction) -> bool:
@@ -116,7 +116,7 @@ class OpenShapesManager(commands.Bot):
                     return True
         return False
 
-    def get_user_bots(self, user_id: str):
+    def get_user_bots(self, user_id: str) -> Dict[str, Dict[str, Any]]:
         return self.container_manager.get_user_bots(user_id)
 
     def get_user_bot_count(self, user_id: str) -> int:
@@ -204,23 +204,23 @@ class OpenShapesManager(commands.Bot):
             self.logger.error(f"Error creating bot: {e}")
             return False, f"Error creating bot: {str(e)}"
 
-    async def start_bot(self, user_id, bot_name):
+    async def start_bot(self, user_id: str, bot_name: str) -> Tuple[bool, str]:
         return await self.container_manager.start_bot(user_id, bot_name)
 
-    async def stop_bot(self, user_id, bot_name):
+    async def stop_bot(self, user_id: str, bot_name: str) -> Tuple[bool, str]:
         return await self.container_manager.stop_bot(user_id, bot_name)
 
-    async def restart_bot(self, user_id, bot_name):
+    async def restart_bot(self, user_id: str, bot_name: str) -> Tuple[bool, str]:
         return await self.container_manager.restart_bot(user_id, bot_name)
 
-    async def delete_bot(self, user_id, bot_name):
+    async def delete_bot(self, user_id: str, bot_name: str) -> Tuple[bool, str]:
         is_admin = str(user_id) in self.config["admin_users"]
         bot_dir = self.get_bot_config_dir(user_id, bot_name)
         return await self.container_manager.delete_bot(user_id, bot_name, is_admin, bot_dir)
 
-    async def get_bot_logs(self, user_id, bot_name, lines=20):
+    async def get_bot_logs(self, user_id: str, bot_name: str, lines: int = 20) -> Tuple[bool, str]:
         is_admin = str(user_id) in self.config["admin_users"]
         return await self.container_manager.get_bot_logs(user_id, bot_name, lines, is_admin)
 
-    async def get_bot_stats(self, user_id, bot_name):
+    async def get_bot_stats(self, user_id: str, bot_name: str) -> Tuple[bool, Dict[str, Any]]:
         return await self.container_manager.get_bot_stats(user_id, bot_name)
