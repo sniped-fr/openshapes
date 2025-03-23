@@ -27,12 +27,21 @@ class ConfigurationManager:
                 self.data = json.load(f)
                 logger.info(f"Successfully loaded config from {self.config_path}")
                 return self.data
+
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in config file: {e}")
             return {}
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
             return {}
+
+    def save_config(self) -> None:
+        try:
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(self.data, f, indent=2)
+                logger.info(f"Saved config to {self.config_path}")
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.data.get(key, default)
@@ -91,6 +100,7 @@ class PersonalityProfile:
         self.history = config.get("personality_history")
         self.conversational_goals = config.get("personality_conversational_goals")
         self.conversational_examples = config.get("personality_conversational_examples")
+        self.jailbreak = config.get("jailbreak")
 
 class FileSystemManager:
     def __init__(self, data_dir: str):
@@ -236,15 +246,7 @@ class OpenShape(commands.Bot):
     @property
     def personality_conversational_examples(self) -> Any:
         return self.personality.conversational_examples
-        
-    @property
-    def free_will(self) -> bool:
-        return self.personality.free_will
-        
-    @property
-    def free_will_instruction(self) -> str:
-        return self.personality.free_will_instruction
-        
+
     @property
     def jailbreak(self) -> str:
         return self.personality.jailbreak
@@ -292,14 +294,6 @@ class OpenShape(commands.Bot):
     @property
     def blacklisted_users(self) -> List[int]:
         return self.behavior.blacklisted_users
-
-    @property
-    def conversation_timeout(self) -> int:
-        return self.behavior.conversation_timeout
-        
-    @property
-    def message_cooldown_seconds(self) -> int:
-        return self.behavior.message_cooldown_seconds
 
     @system_prompt.setter
     def system_prompt(self, value: str) -> None:
@@ -396,3 +390,7 @@ class OpenShape(commands.Bot):
         logger.info(f"Logged in as {self.user.name} ({self.user.id})")
         await self.tree.sync()
         logger.info(f"Character name: {self.character_name}")
+
+    async def close(self):
+        self.config_manager.save_config()
+        return await super().close()
