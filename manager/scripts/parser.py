@@ -326,11 +326,6 @@ class ParserApplication:
         else:
             print("No brain data file found, proceeding without brain data")
 
-
-def main() -> None:
+if __name__ == "__main__":
     app = ParserApplication()
     app.run()
-
-
-if __name__ == "__main__":
-    main()

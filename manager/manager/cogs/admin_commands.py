@@ -17,7 +17,7 @@ class AdminCommands(commands.GroupCog, group_name="admin", group_description="Ad
             return
 
         await self.bot.refresh_bot_list()
-        total_bots = sum(len(bots) for bots in self.bot.container_manager.active_bots.values())
+        total_bots = sum(len(bots) for bots in self.bot.active_bots.values())
 
         if total_bots == 0:
             await interaction.followup.send("No OpenShapes bots found")
@@ -25,11 +25,11 @@ class AdminCommands(commands.GroupCog, group_name="admin", group_description="Ad
 
         embed = discord.Embed(
             title="All OpenShapes Bots",
-            description=f"Total: {total_bots} bot(s) across {len(self.bot.container_manager.active_bots)} user(s)",
+            description=f"Total: {total_bots} bot(s) across {len(self.bot.active_bots)} user(s)",
             color=discord.Color.blue(),
         )
 
-        for user_id, bots in self.bot.container_manager.active_bots.items():
+        for user_id, bots in self.bot.active_bots.items():
             try:
                 user = await self.bot.fetch_user(int(user_id))
                 user_name = f"{user.name} ({user_id})"
@@ -91,8 +91,8 @@ class AdminCommands(commands.GroupCog, group_name="admin", group_description="Ad
             )
             embed.add_field(
                 name="OpenShapes",
-                value=f"Total bots: {sum(len(bots) for bots in self.bot.container_manager.active_bots.values())}\n"
-                      f"Users: {len(self.bot.container_manager.active_bots)}\n"
+                value=f"Total bots: {sum(len(bots) for bots in self.bot.active_bots.values())}\n"
+                      f"Users: {len(self.bot.active_bots)}\n"
                       f"Data directory: {self.bot.config['data_dir']}",
                 inline=False,
             )
@@ -134,7 +134,7 @@ class AdminCommands(commands.GroupCog, group_name="admin", group_description="Ad
             return
 
         try:
-            all_bots = self.bot.container_manager.active_bots.get(user_id, {})
+            all_bots = self.bot.active_bots.get(user_id, {})
             if bot_name not in all_bots:
                 await interaction.followup.send(f"❌ Bot {bot_name} not found for user {user_id}")
                 return

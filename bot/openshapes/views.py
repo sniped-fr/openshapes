@@ -1,5 +1,5 @@
-import discord
 import re
+import discord
 from typing import Callable, Optional, Protocol, TypeVar, Any, List, Awaitable
 from abc import abstractmethod
 from enum import Enum, auto
@@ -16,8 +16,7 @@ class TextInputType(Enum):
     def discord_style(self) -> discord.TextStyle:
         if self == TextInputType.PARAGRAPH:
             return discord.TextStyle.paragraph
-        else:
-            return discord.TextStyle.short
+        return discord.TextStyle.short
 
 class ButtonType(Enum):
     PRIMARY = auto()

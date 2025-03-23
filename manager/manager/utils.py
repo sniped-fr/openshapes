@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 class LoggerManager:
     @staticmethod
-    def setup():
+    def setup() -> logging.Logger:
         logger = logging.getLogger("manager")
         logger.setLevel(logging.INFO)
         if not logger.handlers:
@@ -17,7 +17,7 @@ class LoggerManager:
 
 class DirectoryManager:
     @staticmethod
-    def create_required_directories(data_dir: str):
+    def create_required_directories(data_dir: str) -> None:
         os.makedirs(data_dir, exist_ok=True)
         os.makedirs(os.path.join(data_dir, "users"), exist_ok=True)
         os.makedirs(os.path.join(data_dir, "configs"), exist_ok=True)

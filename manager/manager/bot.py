@@ -34,7 +34,7 @@ class OpenShapesManager(commands.Bot):
         if not hasattr(self, 'container_manager') or self.container_manager is None:
             self.logger.warning("Container manager not initialized, returning empty dict for active_bots")
             return {}
-        return self.container_manager.active_bots
+        return self.container_manager.registry.active_bots
 
     def _load_config(self) -> dict:
         config_path = os.path.join(DIR, BOT_CONFIG_FILE)

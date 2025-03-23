@@ -1,8 +1,8 @@
 import logging
 import discord
 from typing import Dict, List, Callable, Awaitable, TypeVar, cast
-from openshapes.views import TextEditModal
 from discord.ext import commands
+from openshapes.views import TextEditModal
 
 logger = logging.getLogger("openshape")
 

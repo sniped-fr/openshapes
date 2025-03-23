@@ -1,7 +1,7 @@
-import discord
 import json
 import logging
 import os
+import discord
 from typing import Dict, Set, List, Any, Optional
 from discord.ext import commands
 from openai import AsyncOpenAI

@@ -1,4 +1,3 @@
-import chromadb
 import os
 import json
 import logging
@@ -6,6 +5,7 @@ import datetime
 import uuid
 import re
 import time
+import chromadb
 from typing import List
 
 logging.basicConfig(

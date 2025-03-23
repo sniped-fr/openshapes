@@ -1,6 +1,6 @@
-import discord
 import os
 import logging
+import discord
 from typing import Optional, List, Set
 from enum import Enum, auto
 

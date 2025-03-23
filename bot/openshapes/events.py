@@ -1,9 +1,9 @@
-import discord
 import re
 import os
 import datetime
 import asyncio
 import logging
+import discord
 from typing import Dict, List, Optional, Any, Tuple
 from discord.ext import commands
 
@@ -798,19 +798,23 @@ class OOCCommandHandler:
         args = parts[1] if len(parts) > 1 else ""
         guild_id = str(message.guild.id) if message.guild else "global"
 
-        if command == "regex" and hasattr(self.bot, 'regex_manager'):
-            await self._handle_regex_command(message, args)
-        elif command == "memory" or command == "wack":
-            await self._handle_memory_command(message, args, guild_id)
-        elif command == "lore":
-            await self._handle_lore_command(message, args)
-        elif command == "activate" or command == "deactivate":
-            await self._handle_activation_commands(message, command)
-        elif command == "persona":
-            await self._handle_persona_command(message)
-        elif command == "save":
-            await self._handle_save_command(message)
-        elif command == "help":
-            await self._handle_help_command(message)
+        command_handlers = {
+            "regex": lambda: self._handle_regex_command(message, args) if hasattr(self.bot, 'regex_manager') else None,
+            "memory": lambda: self._handle_memory_command(message, args, guild_id),
+            "wack": lambda: self._handle_memory_command(message, args, guild_id),
+            "lore": lambda: self._handle_lore_command(message, args),
+            "activate": lambda: self._handle_activation_commands(message, command),
+            "deactivate": lambda: self._handle_activation_commands(message, command),
+            "persona": lambda: self._handle_persona_command(message),
+            "save": lambda: self._handle_save_command(message),
+            "help": lambda: self._handle_help_command(message)
+        }
+        
+        handler = command_handlers.get(command)
+
+        if handler:
+            await handler()
         else:
-            await message.reply(f"Unknown command: {command}. Type //help for available commands.")
+            await message.reply(
+                f"Unknown command or manager not loaded: {command}. Type //help for available commands."
+            )

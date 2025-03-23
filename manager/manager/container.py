@@ -594,10 +594,6 @@ class ContainerManager:
         self.parser_ops = ParserOperations(logger, self.docker_client, config)
         self.bot_container_ops = BotContainerOperations(logger, self.docker_client, config, self.registry)
         self.bot_mgmt_ops = BotManagementOperations(logger, self.docker_client, config, self.registry)
-    
-    @property
-    def active_bots(self):
-        return self.registry.active_bots
 
     async def refresh_bot_list(self) -> None:
         try:
