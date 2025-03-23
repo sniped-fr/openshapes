@@ -45,8 +45,8 @@ class ModelSelectDropdown(discord.ui.Select):
         selected_model = interaction.data['values'][0]
         
         old_model = self.parent_view.bot.chat_model
-        self.parent_view.bot.chat_model = selected_model
-        self.parent_view.bot.api_settings["chat_model"] = selected_model
+        self.parent_view.bot.api_integration.chat_model = selected_model
+        self.parent_view.bot.config_manager.data["chat_model"] = selected_model
         self.parent_view.bot.config_manager.update_field("api_settings", self.parent_view.bot.api_settings)
         
         embed = discord.Embed(
