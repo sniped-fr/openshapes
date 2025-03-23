@@ -2,12 +2,6 @@ import logging
 import discord
 from typing import Dict, List, Any
 from discord.ext import commands
-from openshapes.models.model_selector import (
-    OpenAIModelRepository,
-    BotModelSelectionListener,
-    BotOwnerPermissionChecker,
-    ModelSelectionController
-)
 
 logger = logging.getLogger("openshape")
 
@@ -136,7 +130,7 @@ class BasicCommandsCog(commands.Cog):
         self.info_builder = CharacterInfoBuilder(bot)
         self.activation_manager = ChannelActivationManager(bot)
         
-    @commands.command(name="character_info")
+    @discord.app_commands.command(name="character_info")
     async def character_info_command(self, interaction: discord.Interaction) -> None:
         embeds = self.info_builder.build_embeds()
         
@@ -146,34 +140,19 @@ class BasicCommandsCog(commands.Cog):
             view = PaginationView(embeds)
             await interaction.response.send_message(embed=embeds[0], view=view)
             
-    @commands.command(name="activate")
+    @discord.app_commands.command(name="activate")
     async def activate_command(self, interaction: discord.Interaction) -> None:
         self.activation_manager.activate_channel(interaction.channel.id)
         await interaction.response.send_message(
             f"{self.bot.character_name} will now respond to all messages in this channel."
         )
         
-    @commands.command(name="deactivate")
+    @discord.app_commands.command(name="deactivate")
     async def deactivate_command(self, interaction: discord.Interaction) -> None:
         self.activation_manager.deactivate_channel(interaction.channel.id)
         await interaction.response.send_message(
             f"{self.bot.character_name} will now only respond when mentioned or called by name."
         )
-        
-    @commands.command(name="models")
-    async def models_command(self, interaction: discord.Interaction) -> None:
-        if not self.bot.api_integration.client:
-            await interaction.response.send_message(
-                "AI client not configured. Set API settings first.", ephemeral=True
-            )
-            return
-
-        repository = OpenAIModelRepository(self.bot.api_integration.client)
-        listener = BotModelSelectionListener(self.bot)
-        permission_checker = BotOwnerPermissionChecker(self.bot.config_manager.get("owner_id"))
-        
-        controller = ModelSelectionController(repository, listener, permission_checker)
-        await controller.display_model_selection(interaction, self.bot.api_integration.chat_model)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(BasicCommandsCog(bot))
