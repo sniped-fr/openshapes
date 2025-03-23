@@ -76,7 +76,7 @@ class BotOwnerPermissionChecker:
         self.owner_id = owner_id
         
     async def can_select_models(self, interaction: discord.Interaction) -> bool:
-        if str(interaction.user.id) != self.owner_id:
+        if interaction.user.id != self.owner_id:
             await interaction.response.send_message(
                 "Only the bot owner can change the AI model", ephemeral=True
             )

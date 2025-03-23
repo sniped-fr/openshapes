@@ -10,7 +10,7 @@ class CreateCommands(commands.GroupCog, group_name="create", group_description="
     @app_commands.command(name="bot", description="Create a new OpenShapes bot")
     async def create_bot(self, interaction: discord.Interaction, bot_name: str, bot_token: str, config_file: discord.Attachment, brain_file: Optional[discord.Attachment] = None):
         await interaction.response.defer(thinking=True, ephemeral=True)
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
 
         try:
             config_content = await config_file.read()

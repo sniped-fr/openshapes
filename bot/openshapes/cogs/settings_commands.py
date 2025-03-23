@@ -18,7 +18,7 @@ class SettingsFormatter:
 class PermissionValidator:
     @staticmethod
     async def validate_owner(interaction: discord.Interaction, owner_id: int) -> bool:
-        if str(interaction.user.id) != owner_id:
+        if interaction.user.id != owner_id:
             await interaction.response.send_message(
                 "Only the bot owner can use this command", ephemeral=True
             )
@@ -207,7 +207,7 @@ class SettingsCommandHandler:
     async def handle_settings(self, interaction: discord.Interaction) -> None:
         settings_display = SettingsFormatter.format_settings(self.bot)
         
-        if str(interaction.user.id) != self.bot.config_manager.get("owner_id"):
+        if interaction.user.id != self.bot.config_manager.get("owner_id"):
             await interaction.response.send_message(settings_display)
             return
             
@@ -383,7 +383,7 @@ class HelpCommandHandler:
         self.embed_builder = HelpEmbedBuilder(bot)
         
     async def handle_help_command(self, interaction: discord.Interaction) -> None:
-        is_owner = str(interaction.user.id) == self.bot.config_manager.get("owner_id")
+        is_owner = interaction.user.id == self.bot.config_manager.get("owner_id")
         embed = self.embed_builder.build_help_embed(is_owner)
         await interaction.response.send_message(embed=embed)
 

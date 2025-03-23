@@ -37,7 +37,7 @@ class LorebookCommandHandler:
         await interaction.response.send_message(lore_display, view=view)
         
     async def handle_lorebook_command(self, interaction: discord.Interaction) -> None:
-        if str(interaction.user.id) != self.bot.config_manager.get("owner_id"):
+        if interaction.user.id != self.bot.config_manager.get("owner_id"):
             await self.handle_regular_user_view(interaction)
         else:
             await self.handle_owner_view(interaction)

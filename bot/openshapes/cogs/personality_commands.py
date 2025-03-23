@@ -12,7 +12,7 @@ ModalSubmitCallback = Callable[[discord.Interaction], Awaitable[None]]
 class PermissionChecker:
     @staticmethod
     async def check_owner_permission(interaction: discord.Interaction, owner_id: int) -> bool:
-        if str(interaction.user.id) != owner_id:
+        if interaction.user.id != owner_id:
             await interaction.response.send_message(
                 "Only the bot owner can use this command", ephemeral=True
             )

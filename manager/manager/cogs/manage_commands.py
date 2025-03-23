@@ -9,7 +9,7 @@ class ManageCommands(commands.GroupCog, group_name="manage", group_description="
     @app_commands.command(name="list", description="List your OpenShapes bots")
     async def list_bots(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
         user_bots = self.bot.get_user_bots(user_id)
 
         if not user_bots:
@@ -35,7 +35,7 @@ class ManageCommands(commands.GroupCog, group_name="manage", group_description="
     @app_commands.command(name="start", description="Start a stopped bot")
     async def start_bot(self, interaction: discord.Interaction, bot_name: str):
         await interaction.response.defer(thinking=True)
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
         success, message = await self.bot.start_bot(user_id, bot_name)
 
         if success:
@@ -46,7 +46,7 @@ class ManageCommands(commands.GroupCog, group_name="manage", group_description="
     @app_commands.command(name="stop", description="Stop a running bot")
     async def stop_bot(self, interaction: discord.Interaction, bot_name: str):
         await interaction.response.defer(thinking=True)
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
         success, message = await self.bot.stop_bot(user_id, bot_name)
 
         if success:
@@ -57,7 +57,7 @@ class ManageCommands(commands.GroupCog, group_name="manage", group_description="
     @app_commands.command(name="restart", description="Restart a bot")
     async def restart_bot(self, interaction: discord.Interaction, bot_name: str):
         await interaction.response.defer(thinking=True)
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
         success, message = await self.bot.restart_bot(user_id, bot_name)
 
         if success:
@@ -68,7 +68,7 @@ class ManageCommands(commands.GroupCog, group_name="manage", group_description="
     @app_commands.command(name="delete", description="Delete a bot completely")
     async def delete_bot(self, interaction: discord.Interaction, bot_name: str):
         await interaction.response.defer(thinking=True)
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
 
         confirm_view = discord.ui.View(timeout=60)
         confirm_button = discord.ui.Button(
@@ -121,7 +121,7 @@ class ManageCommands(commands.GroupCog, group_name="manage", group_description="
     @app_commands.command(name="logs", description="Get logs from a bot")
     async def logs(self, interaction: discord.Interaction, bot_name: str, lines: int = 20):
         await interaction.response.defer(thinking=True)
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
         success, logs = await self.bot.get_bot_logs(user_id, bot_name, lines)
 
         if success:
@@ -134,7 +134,7 @@ class ManageCommands(commands.GroupCog, group_name="manage", group_description="
     @app_commands.command(name="status", description="Get detailed status of a bot")
     async def status(self, interaction: discord.Interaction, bot_name: str):
         await interaction.response.defer(thinking=True)
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
         success, stats = await self.bot.get_bot_stats(user_id, bot_name)
 
         if success and stats:

@@ -11,7 +11,7 @@ class APISettingsHandler:
         self.bot = bot
 
     async def handle_api_command(self, interaction: discord.Interaction) -> None:
-        if str(interaction.user.id) != self.bot.config_manager.get("owner_id"):
+        if interaction.user.id != self.bot.config_manager.get("owner_id"):
             await interaction.response.send_message(
                 "Only the bot owner can use this command", ephemeral=True
             )

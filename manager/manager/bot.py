@@ -100,7 +100,7 @@ class OpenShapesManager(commands.Bot):
         await self.container_manager.refresh_bot_list()
 
     def is_admin(self, interaction: discord.Interaction) -> bool:
-        user_id = str(interaction.user.id)
+        user_id = interaction.user.id
         
         if self.config is None or "admin_users" not in self.config:
             self.logger.warning("Config missing or admin_users not found in config")
@@ -184,7 +184,7 @@ class OpenShapesManager(commands.Bot):
                     char_config = json.load(f)
 
                 char_config["bot_token"] = bot_token
-                char_config["owner_id"] = user_id
+                char_config["owner_id"] = int(user_id)
                 char_config["character_name"] = bot_name
 
                 with open(config_path, "w") as f:
