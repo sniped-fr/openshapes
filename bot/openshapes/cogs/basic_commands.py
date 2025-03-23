@@ -53,7 +53,7 @@ class CharacterField:
         return len(self.name) + len(self.value)
 
 class CharacterInfoBuilder:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.embed_color = 0x3498DB
         
@@ -118,7 +118,7 @@ class CharacterInfoBuilder:
         return embeds
 
 class ChannelActivationManager:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         
     def activate_channel(self, channel_id: int) -> None:

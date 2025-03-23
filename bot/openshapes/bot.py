@@ -5,12 +5,12 @@ import os
 from typing import Dict, Set, List, Any, Optional
 from discord.ext import commands
 from openai import AsyncOpenAI
-from vectordb.chroma_integration import setup_memory_system
+from openshapes.vectordb.chroma_integration import MemorySystem
 from openshapes.utils.regex_extension import RegexManager
 from openshapes.utils.file_parser import FileParser
 from openshapes.utils.config_manager import ConfigManager
 from openshapes.utils.helpers import OpenShapeHelpers
-from openshapes.events.message_handler import MessageHandler, ReactionHandler, OOCCommandHandler
+from openshapes.events import MessageHandler, ReactionHandler, OOCCommandHandler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("openshape")
@@ -91,9 +91,6 @@ class PersonalityProfile:
         self.history = config.get("personality_history")
         self.conversational_goals = config.get("personality_conversational_goals")
         self.conversational_examples = config.get("personality_conversational_examples")
-        self.free_will = config.get("free_will", False)
-        self.free_will_instruction = config.get("free_will_instruction", "")
-        self.jailbreak = config.get("jailbreak", "")
 
 class FileSystemManager:
     def __init__(self, data_dir: str):
@@ -118,8 +115,6 @@ class BehaviorSettings:
         self.activated_channels = set(config.get("activated_channels", []))
         self.blacklisted_users = config.get("blacklisted_users", [])
         self.blacklisted_roles = config.get("blacklisted_roles", [])
-        self.conversation_timeout = config.get("conversation_timeout", 30)
-        self.message_cooldown_seconds = 3
 
 class OpenShape(commands.Bot):
     def __init__(self, config_path: str, *args, **kwargs):
@@ -153,8 +148,10 @@ class OpenShape(commands.Bot):
         
         self.config_manager_obj = ConfigManager(self)
         self.helpers = OpenShapeHelpers(self)
-        self.memory_manager = setup_memory_system(self, os.path.join(os.getcwd(), "shared_memory"))
         self.regex_manager = RegexManager(self)
+
+        self.memory_setup_handler = MemorySystem(self, os.path.join(os.getcwd(), "shared_memory"))
+        self.memory_setup_handler.setup()
 
     @property
     def base_url(self) -> str:
@@ -295,11 +292,7 @@ class OpenShape(commands.Bot):
     @property
     def blacklisted_users(self) -> List[int]:
         return self.behavior.blacklisted_users
-        
-    @property
-    def blacklisted_roles(self) -> List[int]:
-        return self.behavior.blacklisted_roles
-        
+
     @property
     def conversation_timeout(self) -> int:
         return self.behavior.conversation_timeout
@@ -308,17 +301,9 @@ class OpenShape(commands.Bot):
     def message_cooldown_seconds(self) -> int:
         return self.behavior.message_cooldown_seconds
 
-    @character_name.setter
-    def character_name(self, value: str) -> None:
-        self.personality.name = value
-
     @system_prompt.setter
     def system_prompt(self, value: str) -> None:
         self.personality.system_prompt = value
-
-    @character_backstory.setter
-    def character_backstory(self, value: str) -> None:
-        self.personality.backstory = value
 
     @character_description.setter
     def character_description(self, value: str) -> None:
@@ -372,38 +357,6 @@ class OpenShape(commands.Bot):
     def personality_conversational_examples(self, value: Any) -> None:
         self.personality.conversational_examples = value
 
-    @free_will.setter
-    def free_will(self, value: bool) -> None:
-        self.personality.free_will = value
-
-    @free_will_instruction.setter
-    def free_will_instruction(self, value: str) -> None:
-        self.personality.free_will_instruction = value
-
-    @jailbreak.setter
-    def jailbreak(self, value: str) -> None:
-        self.personality.jailbreak = value
-
-    @data_dir.setter
-    def data_dir(self, value: str) -> None:
-        self.file_system.data_dir = value
-
-    @conversations_dir.setter
-    def conversations_dir(self, value: str) -> None:
-        self.file_system.conversations_dir = value
-
-    @memory_path.setter
-    def memory_path(self, value: str) -> None:
-        self.file_system.memory_path = value
-
-    @lorebook_path.setter
-    def lorebook_path(self, value: str) -> None:
-        self.file_system.lorebook_path = value
-
-    @audio_dir.setter
-    def audio_dir(self, value: str) -> None:
-        self.file_system.audio_dir = value
-
     @add_character_name.setter
     def add_character_name(self, value: bool) -> None:
         self.behavior.add_character_name = value
@@ -427,18 +380,6 @@ class OpenShape(commands.Bot):
     @blacklisted_users.setter
     def blacklisted_users(self, value: List[int]) -> None:
         self.behavior.blacklisted_users = value
-
-    @blacklisted_roles.setter
-    def blacklisted_roles(self, value: List[int]) -> None:
-        self.behavior.blacklisted_roles = value
-
-    @conversation_timeout.setter
-    def conversation_timeout(self, value: int) -> None:
-        self.behavior.conversation_timeout = value
-
-    @message_cooldown_seconds.setter
-    def message_cooldown_seconds(self, value: int) -> None:
-        self.behavior.message_cooldown_seconds = value
 
     async def register_cogs(self) -> None:
         for file in os.listdir("./openshapes/cogs"):

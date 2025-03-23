@@ -1,8 +1,8 @@
 import logging
 import discord
 from typing import List, Dict
-from openshapes.utils.views import LorebookManagementView
 from discord.ext import commands
+from openshapes.views import LorebookManagementView
 
 logger = logging.getLogger("openshape")
 

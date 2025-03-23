@@ -1,25 +1,24 @@
 import logging
 import discord
-from typing import Any, Protocol
+from typing import Protocol
 from discord.ext import commands
+from openshapes.vectordb.chroma_integration import SleepCommand, MemoryCommand
 
 logger = logging.getLogger("openshape")
 
 class CommandExecutor(Protocol):
     @staticmethod
-    async def execute(bot: Any, interaction: discord.Interaction) -> None:
+    async def execute(bot: commands.Bot, interaction: discord.Interaction) -> None:
         pass
 
 class MemoryCommandHandler:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         
     async def handle_sleep(self, interaction: discord.Interaction) -> None:
-        from vectordb.chroma_integration import SleepCommand
         await SleepCommand.execute(self.bot, interaction)
         
     async def handle_memory(self, interaction: discord.Interaction) -> None:
-        from vectordb.chroma_integration import MemoryCommand
         await MemoryCommand.execute(self.bot, interaction)
 
 class MemoryCommandsCog(commands.Cog):

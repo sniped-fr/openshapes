@@ -1,7 +1,7 @@
 import logging
 import discord
-from typing import Dict, List, Any, Callable, Awaitable, TypeVar, cast
-from openshapes.utils.views import TextEditModal
+from typing import Dict, List, Callable, Awaitable, TypeVar, cast
+from openshapes.views import TextEditModal
 from discord.ext import commands
 
 logger = logging.getLogger("openshape")
@@ -57,7 +57,7 @@ class SelectMenuBuilder:
         return view
 
 class PersonalityEditor:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         
     def get_trait_values(self) -> Dict[str, str]:
@@ -140,7 +140,7 @@ class PersonalityEditor:
         await interaction.response.send_modal(modal)
 
 class PersonalityCommandHandler:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.editor = PersonalityEditor(bot)
         

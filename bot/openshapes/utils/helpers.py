@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import discord
 from typing import Dict, List, Optional, Tuple, Any, TypeVar
+from discord.ext import commands
 
 logger = logging.getLogger("openshape.helpers")
 
@@ -76,7 +77,7 @@ class AudioFileManager:
         return os.path.join(self.temp_dir, filename)
 
 class TTSHandler:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.file_manager = AudioFileManager(bot.data_dir)
         
@@ -150,7 +151,7 @@ class TTSHandler:
             await voice_client.disconnect()
 
 class SystemPromptBuilder:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         
     def build_prompt(self, user_name: str, relevant_info: Optional[List[str]] = None) -> str:
@@ -221,7 +222,7 @@ class MessageFormatter:
         }
 
 class APIManager:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.prompt_builder = SystemPromptBuilder(bot)
         
@@ -335,7 +336,7 @@ class MessageGroup:
         }
 
 class MessageProcessor:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.multipart_messages: Dict[int, Dict[str, Any]] = {}
         self.message_contexts: Dict[int, Dict[str, Any]] = {}
@@ -433,7 +434,7 @@ class LorebookEntry:
         }
 
 class LorebookManager:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.lorebook_path = os.path.join(bot.data_dir, "lorebook.json")
         self.lorebook_entries: List[Dict[str, str]] = []
@@ -490,7 +491,7 @@ class LorebookManager:
         return lore_display
 
 class OpenShapeHelpers:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.tts = TTSHandler(bot)
         self.api = APIManager(bot)

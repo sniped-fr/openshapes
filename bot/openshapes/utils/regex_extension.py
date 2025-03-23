@@ -4,6 +4,7 @@ import os
 import logging
 from typing import Dict, Optional, List, Any, Protocol, Set
 from enum import Enum, auto
+from discord.ext import commands
 
 logger = logging.getLogger("openshape")
 
@@ -223,7 +224,7 @@ class RegexScriptRegistry:
         return None
 
 class RegexManager:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.scripts_path = os.path.join(bot.data_dir, "regex_scripts.json")
         self.registry = RegexScriptRegistry(self.scripts_path)

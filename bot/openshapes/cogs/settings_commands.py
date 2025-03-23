@@ -2,7 +2,7 @@ import logging
 import discord
 from typing import List
 from discord.ext import commands
-from openshapes.utils.views import TextEditModal, UserIDModal, SettingsView, RegexManagementView
+from openshapes.views import TextEditModal, UserIDModal, SettingsView, RegexManagementView
 
 logger = logging.getLogger("openshape")
 
@@ -103,14 +103,14 @@ class BlacklistManager:
         ]
         
     async def view_blacklist(self, interaction: discord.Interaction) -> None:
-        if not self.bot.blacklisted_users:
+        if not self.bot.behavior.blacklisted_users:
             await interaction.response.send_message(
                 "No users are blacklisted.", ephemeral=True
             )
             return
 
         blacklist_display = "**Blacklisted Users:**\n"
-        for user_id in self.bot.blacklisted_users:
+        for user_id in self.bot.behavior.blacklisted_users:
             user = self.bot.get_user(user_id)
             name = user.name if user else f"Unknown User ({user_id})"
             blacklist_display += f"- {name} ({user_id})\n"
@@ -125,8 +125,8 @@ class BlacklistManager:
         async def on_user_submit(modal_interaction: discord.Interaction) -> None:
             try:
                 user_id = int(modal.user_id_input.value)
-                if user_id not in self.bot.blacklisted_users:
-                    self.bot.blacklisted_users.append(user_id)
+                if user_id not in self.bot.behavior.blacklisted_users:
+                    self.bot.behavior.blacklisted_users.append(user_id)
                     self.bot.config_manager_obj.save_config()
                     await modal_interaction.response.send_message(
                         f"User {user_id} added to blacklist.", ephemeral=True
@@ -145,7 +145,7 @@ class BlacklistManager:
         await interaction.response.send_modal(modal)
         
     async def remove_user_from_blacklist(self, interaction: discord.Interaction) -> None:
-        if not self.bot.blacklisted_users:
+        if not self.bot.behavior.blacklisted_users:
             await interaction.response.send_message(
                 "No users are blacklisted.", ephemeral=True
             )
@@ -156,8 +156,8 @@ class BlacklistManager:
         async def on_user_submit(modal_interaction: discord.Interaction) -> None:
             try:
                 user_id = int(modal.user_id_input.value)
-                if user_id in self.bot.blacklisted_users:
-                    self.bot.blacklisted_users.remove(user_id)
+                if user_id in self.bot.behavior.blacklisted_users:
+                    self.bot.behavior.blacklisted_users.remove(user_id)
                     self.bot.config_manager_obj.save_config()
                     await modal_interaction.response.send_message(
                         f"User {user_id} removed from blacklist.",

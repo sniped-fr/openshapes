@@ -5,6 +5,7 @@ import datetime
 import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Tuple
+from discord.ext import commands
 
 logger = logging.getLogger("openshape")
 
@@ -47,7 +48,7 @@ class MessageContext:
         )
 
 class ResponseGenerator:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         
     async def generate_response(
@@ -89,7 +90,7 @@ class ResponseGenerator:
             return f"I'm having trouble connecting to my thoughts right now. Please try again later. (Error: {str(e)[:50]}...)"
 
 class TTSPlayback:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         
     async def play_audio(self, message: discord.Message, text: str) -> Optional[str]:
@@ -137,7 +138,7 @@ class TTSPlayback:
             return None
 
 class MessageHandler:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.response_generator = ResponseGenerator(bot)
         self.tts_playback = TTSPlayback(bot)
@@ -195,7 +196,7 @@ class MessageHandler:
 
         await self.bot.process_commands(message)
 
-        if message.author.id in self.bot.blacklisted_users:
+        if message.author.id in self.bot.behavior.blacklisted_users:
             return
 
         should_respond, is_priority = await self._should_respond(message)
@@ -301,7 +302,7 @@ class MessageHandler:
                     self.bot._save_message_context(primary_id, context.to_dict())
 
 class ReactionHandler:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.response_generator = ResponseGenerator(bot)
         
@@ -491,7 +492,7 @@ class ReactionHandler:
                 await self.handle_regenerate_reaction(reaction, message_group, message_id)
 
 class OOCCommandHandler:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         
     async def _handle_regex_command(self, message: discord.Message, args: str) -> None:

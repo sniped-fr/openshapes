@@ -88,8 +88,7 @@ class ConfigMapper:
             "always_reply_mentions": bot.always_reply_mentions,
             "use_tts": bot.use_tts,
             "activated_channels": list(bot.activated_channels),
-            "blacklisted_users": bot.blacklisted_users,
-            "blacklisted_roles": bot.blacklisted_roles
+            "blacklisted_users": bot.behavior.blacklisted_users
         }
         
     @staticmethod

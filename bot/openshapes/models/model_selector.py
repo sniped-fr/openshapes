@@ -3,6 +3,7 @@ import discord
 from typing import List, Optional, Protocol, Any, TypeVar, Coroutine, Union
 from dataclasses import dataclass
 from discord import ui
+from discord.ext import commands
 
 logger = logging.getLogger("openshape")
 
@@ -62,7 +63,7 @@ class OpenAIModelRepository:
         return next((m for m in self._models if m.id == model_id), None)
 
 class BotModelSelectionListener:
-    def __init__(self, bot: Any):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         
     async def on_model_selected(self, model: ModelInfo) -> None:
@@ -166,17 +167,3 @@ class ModelSelectionController:
         view = ModelSelectionView(models, self.repository, self.listener)
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-async def model_command(bot, interaction: discord.Interaction) -> None:
-    if not bot.api_integration.client:
-        await interaction.response.send_message(
-            "AI client not configured. Set API settings first.", ephemeral=True
-        )
-        return
-    
-    repository = OpenAIModelRepository(bot.api_integration.client)
-    listener = BotModelSelectionListener(bot)
-    permission_checker = BotOwnerPermissionChecker(bot.config_manager.get("owner_id"))
-    
-    controller = ModelSelectionController(repository, listener, permission_checker)
-    await controller.display_model_selection(interaction, bot.api_integration.chat_model)

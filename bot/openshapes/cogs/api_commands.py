@@ -2,7 +2,7 @@ import logging
 import discord
 from discord.ext import commands
 from openai import AsyncOpenAI
-from openshapes.utils.views import APISettingModal
+from openshapes.views import APISettingModal
 
 logger = logging.getLogger("openshape")
 
