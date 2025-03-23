@@ -38,8 +38,7 @@ class OpenShapesManager(commands.Bot):
 
     def _load_config(self) -> dict:
         config_path = os.path.join(DIR, BOT_CONFIG_FILE)
-        
-        # Create config directory if it doesn't exist
+
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         
         config = self.config_manager.load(config_path)

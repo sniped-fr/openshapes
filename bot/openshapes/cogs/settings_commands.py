@@ -193,8 +193,6 @@ class DataPersistenceManager:
             return
             
         self.bot.config_manager_obj.save_config()
-        if hasattr(self.bot, 'memory_manager'):
-            self.bot.memory_manager._save_memory()
         if hasattr(self.bot, 'lorebook_manager'):
             self.bot.lorebook_manager._save_lorebook()
             

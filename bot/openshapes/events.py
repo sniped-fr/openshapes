@@ -770,8 +770,6 @@ class OOCCommandHandler:
             
     async def _handle_save_command(self, message: discord.Message) -> None:
         self.bot.config_manager_obj.save_config()
-        if hasattr(self.bot, 'memory_manager'):
-            self.bot.memory_manager._save_memory()
         if hasattr(self.bot, 'lorebook_manager'):
             self.bot.lorebook_manager._save_lorebook()
         await message.reply("All data and settings saved!")
