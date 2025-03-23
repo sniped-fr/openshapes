@@ -58,29 +58,40 @@ except Exception as e:
     
     @staticmethod
     def create_bot_startup_script() -> str:
-        startup_script = "#!/bin/bash\n"
-        startup_script += "# Create necessary directory structure\n"
-        startup_script += "mkdir -p /app/bot/character_data\n\n"
-        
-        startup_script += "# Copy configuration files to the proper locations\n"
-        startup_script += "cp -v /app/config/character_config.json /app/bot/\n"
-        
-        startup_script += "if [ -d /app/config/character_data ]; then\n"
-        startup_script += "    cp -rv /app/config/character_data/* /app/bot/character_data/\n"
-        startup_script += "fi\n\n"
-        
-        startup_script += "# Set debug flag if needed\n"
-        startup_script += "DEBUG_FLAG=\"\"\n"
-        startup_script += "if [ \"$DEBUG\" = \"true\" ]; then\n"
-        startup_script += "    DEBUG_FLAG=\"--debug\"\n"
-        startup_script += "fi\n\n"
-        
-        startup_script += "# Change to bot directory and run the bot using run.sh\n"
-        startup_script += "cd /app/bot\n"
-        startup_script += "bash run.sh --config /app/bot/character_config.json $DEBUG_FLAG\n"
-        
-        return startup_script
+        startup_script = """#!/bin/bash
+# Create necessary directory structure
+mkdir -p /app/bot/character_data
 
+# In this simplified approach, we will NOT copy the config file, 
+# but instead use the original location directly
+echo "Using configuration file: /app/config/character_config.json"
+
+# Create character_data directory in config if it doesn't exist
+mkdir -p /app/config/character_data
+
+# Copy character data if it exists
+if [ -d "/app/config/character_data" ] && [ "$(ls -A /app/config/character_data 2>/dev/null)" ]; then
+    cp -rv /app/config/character_data/* /app/bot/character_data/
+else
+    echo "Character data directory is empty or doesn't exist. Creating empty directory."
+    mkdir -p /app/bot/character_data
+fi
+
+# Set debug flag if needed
+DEBUG_FLAG=""
+if [ "$DEBUG" = "true" ]; then
+    DEBUG_FLAG="--debug"
+fi
+
+# Change to bot directory and run the bot using run.sh
+cd /app/bot
+# Ensure run.sh has proper Unix line endings
+sed -i 's/\\r$//' run.sh
+chmod +x run.sh
+bash run.sh --config /app/config/character_config.json $DEBUG_FLAG
+"""
+        return startup_script
+    
 class ContainerOperationResult:
     def __init__(self, success: bool, message: str, data: Any = None):
         self.success = success
@@ -298,12 +309,13 @@ class BotContainerOperations(ContainerOperationExecutor):
         startup_script = self.script_builder.create_bot_startup_script()
         script_path = os.path.join(bot_dir, "start_bot.sh")
         
+        # Ensure we write with Unix line endings only
         with open(script_path, "w", newline='\n') as f:
             f.write(startup_script)
         
         os.chmod(script_path, 0o755)
         return script_path
-    
+        
     def _launch_bot_container(
         self, 
         container_name: str, 
