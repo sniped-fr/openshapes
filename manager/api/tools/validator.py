@@ -56,16 +56,3 @@ async def check_bot_token_intents(token):
                     await client.close()
                 except:
                     pass
-
-# Example usage
-async def main():
-    try:
-        # I've redacted part of the token for security
-        token = "MTM1MTc1ODM2MjQ2Mjc4MTUzMw.GVHowu.YUpgXXV01jsDeCe0cC3tW2jwR-BeIcpzyhptuA"
-        status, result = await check_bot_token_intents(token)
-        print(f"\n📋 RESULT: {result}")
-    except Exception as e:
-        print(f"❌ ERROR: {str(e)}")
-
-if __name__ == "__main__":
-    asyncio.run(main())
