@@ -542,8 +542,7 @@ class RegexManagementView(ui.View):
                 await interaction.message.edit(embed=embed, view=self)
             except discord.errors.NotFound:
                 # Message no longer exists, send a new message
-                await modal_interaction.followup.send(
-                    "The original message was not found. Here's the updated view:", 
+                await modal_interaction.followup.send( 
                     embed=embed, 
                     view=self, 
                     ephemeral=True
@@ -623,9 +622,7 @@ class RegexManagementView(ui.View):
                 try:
                     await interaction.message.edit(embed=embed, view=self)
                 except discord.errors.NotFound:
-                    # Message no longer exists, send a new message
                     await modal_interaction.followup.send(
-                        "The original message was not found. Here's the updated view:", 
                         embed=embed, 
                         view=self, 
                         ephemeral=True
@@ -682,9 +679,7 @@ class RegexManagementView(ui.View):
             try:
                 await interaction.message.edit(embed=embed, view=self)
             except discord.errors.NotFound:
-                # Message no longer exists, send a new message
                 await select_interaction.followup.send(
-                    "The original message was not found. Here's the updated view:", 
                     embed=embed, 
                     view=self, 
                     ephemeral=True
@@ -741,9 +736,7 @@ class RegexManagementView(ui.View):
                     try:
                         await interaction.message.edit(embed=embed, view=self)
                     except discord.errors.NotFound:
-                        # Message no longer exists, send a new message
                         await confirm_interaction.followup.send(
-                            "The original message was not found. Here's the updated view:", 
                             embed=embed, 
                             view=self, 
                             ephemeral=True
