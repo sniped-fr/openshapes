@@ -7,6 +7,7 @@ from discord.ext import commands
 from openai import AsyncOpenAI
 try:
     from openshapes.vectordb.chroma_integration import MemorySystem
+    from openshapes.vectordb.chroma_preload import preload_chromadb_model
     from openshapes.utils.regex_extension import RegexManager
     from openshapes.utils.file_parser import FileParser
     from openshapes.utils.config_manager import ConfigManager
@@ -14,6 +15,7 @@ try:
     from openshapes.events import MessageHandler, ReactionHandler, OOCCommandHandler
 except ImportError:
     from vectordb.chroma_integration import MemorySystem
+    from vectordb.chroma_preload import preload_chromadb_model
     from utils.regex_extension import RegexManager
     from utils.file_parser import FileParser
     from utils.config_manager import ConfigManager
@@ -414,6 +416,13 @@ class OpenShape(commands.Bot):
         
         self.add_listener(self._message_handler.on_message, "on_message")
         self.add_listener(self._reaction_handler.on_reaction_add, "on_reaction_add")
+        
+        if hasattr(self, 'memory_manager') and self.memory_manager:
+            try:
+                self.loop.create_task(preload_chromadb_model(self.memory_manager))
+                logger.info("Scheduled ChromaDB model preloading during bot initialization")
+            except ImportError:
+                logger.warning("ChromaDB preload module not found, model will be loaded on first memory operation")
 
     async def on_ready(self) -> None:
         logger.info(f"Logged in as {self.user.name} ({self.user.id})")

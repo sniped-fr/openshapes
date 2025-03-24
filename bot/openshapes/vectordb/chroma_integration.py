@@ -7,7 +7,7 @@ try:
     from openshapes.vectordb.vector_memory import ChromaMemoryManager
 except ImportError:
     from vectordb.vector_memory import ChromaMemoryManager
-
+    
 logging.basicConfig(
     level=logging.INFO, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -43,7 +43,7 @@ class MemorySystem:
             self.bot.extract_memories_from_text = memory_manager.extract_memories_from_text
             self.bot.update_memory_from_conversation = memory_manager.update_memory_from_conversation
             self.bot.format_memories_for_display = memory_manager.format_memories_for_display
-            self.bot.update_memory = memory_manager.update_memory 
+            self.bot.update_memory = memory_manager.update_memory
             
             self.bot.memory_manager = memory_manager
             self.bot.long_term_memory = {}
@@ -54,7 +54,7 @@ class MemorySystem:
             logger.error(f"Failed to set up ChromaDB memory system: {e}")
             self._setup_fallback_methods()
             return None
-    
+        
     def _setup_fallback_methods(self):
         self.bot.add_memory = self._fallback_add
         self.bot.remove_memory = self._fallback_remove
