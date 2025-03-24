@@ -5,12 +5,21 @@ import discord
 from typing import Dict, Set, List, Any, Optional
 from discord.ext import commands
 from openai import AsyncOpenAI
-from openshapes.vectordb.chroma_integration import MemorySystem
-from openshapes.utils.regex_extension import RegexManager
-from openshapes.utils.file_parser import FileParser
-from openshapes.utils.config_manager import ConfigManager
-from openshapes.utils.helpers import OpenShapeHelpers
-from openshapes.events import MessageHandler, ReactionHandler, OOCCommandHandler
+try:
+    from openshapes.vectordb.chroma_integration import MemorySystem
+    from openshapes.utils.regex_extension import RegexManager
+    from openshapes.utils.file_parser import FileParser
+    from openshapes.utils.config_manager import ConfigManager
+    from openshapes.utils.helpers import OpenShapeHelpers
+    from openshapes.events import MessageHandler, ReactionHandler, OOCCommandHandler
+except ImportError:
+    from vectordb.chroma_integration import MemorySystem
+    from utils.regex_extension import RegexManager
+    from utils.file_parser import FileParser
+    from utils.config_manager import ConfigManager
+    from utils.helpers import OpenShapeHelpers
+    from events import MessageHandler, ReactionHandler, OOCCommandHandler
+    
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("openshape")
@@ -100,6 +109,8 @@ class PersonalityProfile:
         self.history = config.get("personality_history")
         self.conversational_goals = config.get("personality_conversational_goals")
         self.conversational_examples = config.get("personality_conversational_examples")
+        self.free_will = config.get("free_will")
+        self.free_will_instruction = config.get("free_will_instruction")
         self.jailbreak = config.get("jailbreak")
 
 class FileSystemManager:
@@ -248,6 +259,14 @@ class OpenShape(commands.Bot):
         return self.personality.conversational_examples
 
     @property
+    def free_will(self) -> bool:
+        return self.personality.free_will
+    
+    @property
+    def free_will_instruction(self) -> str:
+        return self.personality.free_will_instruction
+    
+    @property
     def jailbreak(self) -> str:
         return self.personality.jailbreak
         
@@ -376,9 +395,19 @@ class OpenShape(commands.Bot):
         self.behavior.blacklisted_users = value
 
     async def register_cogs(self) -> None:
-        for file in os.listdir("./openshapes/cogs"):
-            if file.endswith(".py") and not file.startswith("__"):
-                await self.load_extension(f"openshapes.cogs.{file[:-3]}")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        cogs_dir = os.path.join(current_dir, "cogs")
+        if os.path.exists(cogs_dir):
+            import sys
+            parent_dir = os.path.dirname(current_dir)
+            if parent_dir not in sys.path:
+                sys.path.insert(0, parent_dir)
+            
+            for file in os.listdir(cogs_dir):
+                if file.endswith(".py") and not file.startswith("__"):
+                    await self.load_extension(f"openshapes.cogs.{file[:-3]}")
+        else:
+            logger.warning(f"Cogs directory not found at: {cogs_dir}")
 
     async def setup_hook(self) -> None:
         await self.register_cogs()

@@ -1,10 +1,12 @@
 *.json
+*.bak
 __pycache__/
 *.pyc
 test/
-bot/character_data/
-bot/shared_memory/
 .env
 *.log
 manager/openshapes_manager/openshapes_data/
-manager/api/data/
+manager/api/
+bot/openshapes/character_data/
+bot/openshapes/shared_memory/
+bot/openshapes/test.py

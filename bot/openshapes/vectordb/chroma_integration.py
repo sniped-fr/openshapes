@@ -3,7 +3,10 @@ import os
 import uuid
 import discord
 from typing import Optional, Any
-from openshapes.vectordb.vector_memory import ChromaMemoryManager
+try:
+    from openshapes.vectordb.vector_memory import ChromaMemoryManager
+except ImportError:
+    from vectordb.vector_memory import ChromaMemoryManager
 
 logging.basicConfig(
     level=logging.INFO, 
