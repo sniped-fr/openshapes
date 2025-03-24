@@ -665,12 +665,3 @@ class ContainerManager:
     
     async def get_bot_stats(self, user_id: str, bot_name: str) -> Tuple[bool, Dict[str, Any]]:
         return await self.bot_mgmt_ops.get_bot_stats(user_id, bot_name)
-    
-    def pull_base_image(self) -> Tuple[bool, str]:
-        try:
-            image = self.docker_client.images.pull(self.config["docker_base_image"])
-            self.logger.info(f"Updated base image: {image.id}")
-            return True, f"Base image updated to: {image.id}"
-        except Exception as e:
-            self.logger.error(f"Error updating base image: {e}")
-            return False, f"Error updating base image: {str(e)}"
