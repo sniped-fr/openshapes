@@ -76,7 +76,7 @@ class APIIntegration:
                 api_key=self.api_key,
                 base_url=self.base_url,
                 max_retries=2,
-                timeout=60,
+                timeout=60
             )
         except Exception as e:
             logger.error(f"Failed to initialize AI client: {e}")
