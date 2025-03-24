@@ -4,6 +4,9 @@ from typing import Callable, Optional, Protocol, TypeVar, Any, List, Awaitable
 from abc import abstractmethod
 from enum import Enum, auto
 from discord import ui
+import logging
+
+logger = logging.getLogger("openshape.ui")
 
 T = TypeVar('T')
 InteractionCallbackT = Callable[[discord.Interaction], Awaitable[None]]
