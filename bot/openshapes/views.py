@@ -535,7 +535,18 @@ class RegexManagementView(ui.View):
             )
             
             embed = await self.generate_embed(interaction)
-            await interaction.message.edit(embed=embed, view=self)
+            try:
+                await interaction.message.edit(embed=embed, view=self)
+            except discord.errors.NotFound:
+                # Message no longer exists, send a new message
+                await modal_interaction.followup.send(
+                    "The original message was not found. Here's the updated view:", 
+                    embed=embed, 
+                    view=self, 
+                    ephemeral=True
+                )
+            except Exception as e:
+                logger.error(f"Error updating message: {e}")
 
         modal.on_submit = on_submit
         await interaction.response.send_modal(modal)
@@ -572,8 +583,8 @@ class RegexManagementView(ui.View):
             modal = RegexScriptModal(
                 title="Edit RegEx Script",
                 default_name=script.name,
-                default_pattern=script.find_pattern,
-                default_replace=script.replace_with
+                default_pattern=script.config.find_pattern,
+                default_replace=script.config.replace_with
             )
 
             async def on_submit(modal_interaction):
@@ -585,18 +596,39 @@ class RegexManagementView(ui.View):
                     )
                     return
 
-                script.name = modal.name_input.value
-                script.find_pattern = modal.pattern_input.value
-                script.replace_with = modal.replace_input.value
+                # Check if the name changed - if so, need to handle differently
+                if script.name != modal.name_input.value:
+                    # Create a new script with the new name and delete the old one
+                    self.regex_manager.add_script(
+                        modal.name_input.value,
+                        modal.pattern_input.value,
+                        modal.replace_input.value
+                    )
+                    self.regex_manager.remove_script(script.name)
+                else:
+                    # Just update the pattern and replacement
+                    script.config.find_pattern = modal.pattern_input.value
+                    script.config.replace_with = modal.replace_input.value
                 
                 self.regex_manager.save_scripts()
                 
                 await modal_interaction.response.send_message(
-                    f"Updated regex script: '{script.name}'", ephemeral=True
+                    f"Updated regex script: '{modal.name_input.value}'", ephemeral=True
                 )
                 
                 embed = await self.generate_embed(interaction)
-                await interaction.message.edit(embed=embed, view=self)
+                try:
+                    await interaction.message.edit(embed=embed, view=self)
+                except discord.errors.NotFound:
+                    # Message no longer exists, send a new message
+                    await modal_interaction.followup.send(
+                        "The original message was not found. Here's the updated view:", 
+                        embed=embed, 
+                        view=self, 
+                        ephemeral=True
+                    )
+                except Exception as e:
+                    logger.error(f"Error updating message: {e}")
 
             modal.on_submit = on_submit
             await select_interaction.response.send_modal(modal)
@@ -644,7 +676,18 @@ class RegexManagementView(ui.View):
             )
             
             embed = await self.generate_embed(interaction)
-            await interaction.message.edit(embed=embed, view=self)
+            try:
+                await interaction.message.edit(embed=embed, view=self)
+            except discord.errors.NotFound:
+                # Message no longer exists, send a new message
+                await select_interaction.followup.send(
+                    "The original message was not found. Here's the updated view:", 
+                    embed=embed, 
+                    view=self, 
+                    ephemeral=True
+                )
+            except Exception as e:
+                logger.error(f"Error updating message: {e}")
 
         select.callback = select_callback
         view = ui.View()
@@ -673,20 +716,53 @@ class RegexManagementView(ui.View):
         async def select_callback(select_interaction):
             script_name = select.values[0]
             
-            async def confirm_callback(confirm_interaction):
+            # Create a direct confirmation view with buttons
+            confirm_view = discord.ui.View(timeout=60)
+            
+            confirm_button = discord.ui.Button(
+                label="Yes, Remove Script", 
+                style=discord.ButtonStyle.danger
+            )
+            cancel_button = discord.ui.Button(
+                label="Cancel", 
+                style=discord.ButtonStyle.secondary
+            )
+            
+            async def confirm_button_callback(confirm_interaction):
                 if self.regex_manager.remove_script(script_name):
                     await confirm_interaction.response.send_message(
                         f"Removed regex script: '{script_name}'", ephemeral=True
                     )
                     
                     embed = await self.generate_embed(interaction)
-                    await interaction.message.edit(embed=embed, view=self)
+                    try:
+                        await interaction.message.edit(embed=embed, view=self)
+                    except discord.errors.NotFound:
+                        # Message no longer exists, send a new message
+                        await confirm_interaction.followup.send(
+                            "The original message was not found. Here's the updated view:", 
+                            embed=embed, 
+                            view=self, 
+                            ephemeral=True
+                        )
+                    except Exception as e:
+                        logger.error(f"Error updating message: {e}")
                 else:
                     await confirm_interaction.response.send_message(
                         f"Script '{script_name}' not found.", ephemeral=True
                     )
-
-            confirm_view = ConfirmView(confirm_callback=confirm_callback)
+            
+            async def cancel_button_callback(cancel_interaction):
+                await cancel_interaction.response.send_message(
+                    "Remove operation canceled.", ephemeral=True
+                )
+            
+            confirm_button.callback = confirm_button_callback
+            cancel_button.callback = cancel_button_callback
+            
+            confirm_view.add_item(confirm_button)
+            confirm_view.add_item(cancel_button)
+            
             await select_interaction.response.send_message(
                 f"Are you sure you want to remove the script '{script_name}'?",
                 view=confirm_view,
@@ -734,37 +810,41 @@ class RegexManagementView(ui.View):
             
             settings_embed.add_field(
                 name="Pattern", 
-                value=f"```{script.find_pattern}```", 
+                value=f"```{script.config.find_pattern}```", 
                 inline=False
             )
             settings_embed.add_field(
                 name="Replacement", 
-                value=f"```{script.replace_with}```", 
+                value=f"```{script.config.replace_with}```", 
                 inline=False
             )
             
-            if script.trim_out:
+            if hasattr(script.config, 'trim_out') and script.config.trim_out:
                 settings_embed.add_field(
                     name="Trim Out", 
-                    value=f"```{script.trim_out}```", 
+                    value=f"```{script.config.trim_out}```", 
                     inline=False
                 )
                 
-            affects = []
-            if script.affects_user_input:
-                affects.append("User Input")
-            if script.affects_ai_response:
-                affects.append("AI Response")
-            if script.affects_slash_commands:
-                affects.append("Slash Commands")
-            if script.affects_world_info:
-                affects.append("World Info")
-            if script.affects_reasoning:
-                affects.append("Reasoning")
+            affected_types = []
+            # Get method to check what text types the script affects
+            if hasattr(script, 'applies_to_text_type'):
+                from openshapes.utils.regex_extension import TextType
+                
+                if script.applies_to_text_type(TextType.USER_INPUT):
+                    affected_types.append("User Input")
+                if script.applies_to_text_type(TextType.AI_RESPONSE):
+                    affected_types.append("AI Response")
+                if script.applies_to_text_type(TextType.SLASH_COMMAND):
+                    affected_types.append("Slash Commands")
+                if script.applies_to_text_type(TextType.WORLD_INFO):
+                    affected_types.append("World Info")
+                if script.applies_to_text_type(TextType.REASONING):
+                    affected_types.append("Reasoning")
             
             settings_embed.add_field(
                 name="Affects", 
-                value=", ".join(affects) if affects else "None", 
+                value=", ".join(affected_types) if affected_types else "None", 
                 inline=True
             )
             settings_embed.add_field(
