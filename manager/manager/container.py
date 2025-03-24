@@ -59,33 +59,21 @@ except Exception as e:
     @staticmethod
     def create_bot_startup_script() -> str:
         startup_script = """#!/bin/bash
-# Create necessary directory structure
 mkdir -p /app/bot/character_data
 
-# In this simplified approach, we will NOT copy the config file, 
-# but instead use the original location directly
 echo "Using configuration file: /app/config/character_config.json"
 
-# Create character_data directory in config if it doesn't exist
 mkdir -p /app/config/character_data
 
-# Copy character data if it exists
-if [ -d "/app/config/character_data" ] && [ "$(ls -A /app/config/character_data 2>/dev/null)" ]; then
-    cp -rv /app/config/character_data/* /app/bot/character_data/
-else
-    echo "Character data directory is empty or doesn't exist. Creating empty directory."
-    mkdir -p /app/bot/character_data
-fi
+mv /app/config/character_data/* /app/bot/character_data/
 
-# Set debug flag if needed
 DEBUG_FLAG=""
 if [ "$DEBUG" = "true" ]; then
     DEBUG_FLAG="--debug"
 fi
 
-# Change to bot directory and run the bot using run.sh
 cd /app/bot
-# Ensure run.sh has proper Unix line endings
+
 sed -i 's/\\r$//' run.sh
 chmod +x run.sh
 bash run.sh --config /app/config/character_config.json $DEBUG_FLAG
