@@ -138,6 +138,7 @@ class BehaviorSettings:
         self.activated_channels = set(config.get("activated_channels", []))
         self.blacklisted_users = config.get("blacklisted_users", [])
         self.blacklisted_roles = config.get("blacklisted_roles", [])
+        self.message_cooldown_seconds = config.get("message_cooldown_seconds", 3)
 
 class OpenShape(commands.Bot):
     def __init__(self, config_path: str, *args, **kwargs):
@@ -315,6 +316,10 @@ class OpenShape(commands.Bot):
     @property
     def blacklisted_users(self) -> List[int]:
         return self.behavior.blacklisted_users
+    
+    @property
+    def message_cooldown_seconds(self) -> int:
+        return self.behavior.message_cooldown_seconds
 
     @system_prompt.setter
     def system_prompt(self, value: str) -> None:
@@ -396,6 +401,10 @@ class OpenShape(commands.Bot):
     def blacklisted_users(self, value: List[int]) -> None:
         self.behavior.blacklisted_users = value
 
+    @message_cooldown_seconds.setter
+    def message_cooldown_seconds(self, value: int) -> None:
+        self.behavior.message_cooldown_seconds = value
+    
     async def register_cogs(self) -> None:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         cogs_dir = os.path.join(current_dir, "cogs")
